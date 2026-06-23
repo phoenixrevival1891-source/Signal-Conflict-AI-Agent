@@ -180,34 +180,23 @@ DRY_RUN = os.getenv("DRY_RUN", "").strip().lower() in {"1","true","yes","y","on"
 USE_TESTNET = os.getenv("BINANCE_FUTURES_TESTNET", "false").lower() in {"1","true","yes","y","on"}
 QUOTE_ASSET = os.getenv("QUOTE_ASSET", "USDT").upper()
 POLL_INTERVAL_SEC = int(os.getenv("POLL_INTERVAL_SEC", "60"))
-PREF_LEVERAGE = int(os.getenv("PREF_LEVERAGE", "18"))
-MAX_LEVERAGE = int(os.getenv("MAX_LEVERAGE", "21"))
+PREF_LEVERAGE = int(os.getenv("PREF_LEVERAGE", "5"))
+MAX_LEVERAGE = int(os.getenv("MAX_LEVERAGE", "5"))
 MAX_WALLET_PCT_PER_TOKEN = float(os.getenv("MAX_WALLET_PCT_PER_TOKEN", "12.0"))
 MIN_DAILY_QUOTE_VOL_USD = float(os.getenv("MIN_DAILY_QUOTE_VOL_USD", "99999"))
 SYMBOLS_ENV = os.getenv("SYMBOLS", "ALL_USDT_FUTURES").strip().upper()
-ETH_MAJOR_SYMBOLS = [
-    "BTCUSDT",
-    "ETHUSDT",
-    "BCHUSDT",
-    "XRPUSDT",
-    "LTCUSDT",
-    "TRXUSDT",
-    "ETCUSDT",
-    "LINKUSDT",
-    "XLMUSDT",
-    "ADAUSDT",
-    "XMRUSDT",
-    "DASHUSDT",
-    "ZECUSDT",
-    "XTZUSDT",
-    "BNBUSDT",
-    "ATOMUSDT",
-    "ONTUSDT",
-    "IOTAUSDT",
-    "BATUSDT",
-    "VETUSDT",
-    "NEOUSDT"
-]
+
+# Universe selection - loaded from external config or environment
+CORE_FUTURES_UNIVERSE = os.getenv("CORE_FUTURES_UNIVERSE", "").strip()
+if CORE_FUTURES_UNIVERSE:
+    ETH_MAJOR_SYMBOLS = [s.strip().upper() for s in CORE_FUTURES_UNIVERSE.split(",") if s.strip()]
+else:
+    # Default universe if not specified - safe list
+    ETH_MAJOR_SYMBOLS = [
+        "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
+        "ADAUSDT", "DOGEUSDT", "DOTUSDT", "LINKUSDT", "AVAXUSDT",
+        "MATICUSDT", "UNIUSDT", "ATOMUSDT", "LTCUSDT", "NEARUSDT"
+    ]
 
 if not OVERRIDE_SYMBOLS:
     OVERRIDE_SYMBOLS = ETH_MAJOR_SYMBOLS
@@ -239,73 +228,90 @@ REVERSION_STRENGTH_THRESHOLD = float(os.getenv("REVERSION_STRENGTH_THRESHOLD", "
 CONFLICT_CONFIRMATION_BARS = int(os.getenv("CONFLICT_CONFIRMATION_BARS", "3"))
 
 # RISK MANAGEMENT - RRR ALIGNMENT (safe ranges only)
-DAILY_LOSS_CAP_PCT = float(os.getenv("DAILY_LOSS_CAP_PCT", "3.0"))
-GLOBAL_DAILY_LOSS_CAP_PCT = float(os.getenv("GLOBAL_DAILY_LOSS_CAP_PCT", "3.0"))
-MAX_CONSECUTIVE_SL = int(os.getenv("MAX_CONSECUTIVE_SL", "2"))
-SL_STREAK_RESET_HOURS = int(os.getenv("SL_STREAK_RESET_HOURS", "6"))
-LOSS_COOLDOWN_HOURS = int(os.getenv("LOSS_COOLDOWN_HOURS", "1"))
-RISK_PER_TRADE_PCT = float(os.getenv("RISK_PER_TRADE_PCT", "33.33"))
-MIN_RISK_REWARD_RATIO = float(os.getenv("MIN_RISK_REWARD_RATIO", "1.15"))
-MAX_DAILY_TRADES = int(os.getenv("MAX_DAILY_TRADES", "20"))
-MIN_WIN_RATE = float(os.getenv("MIN_WIN_RATE", "0.35"))
-MIN_STOP_DISTANCE_PCT = float(os.getenv("MIN_STOP_DISTANCE_PCT", "0.15"))
-MIN_PROFIT_PCT = float(os.getenv("MIN_PROFIT_PCT", "0.3"))
-ATR_STOP_MULTIPLIER = float(os.getenv("ATR_STOP_MULTIPLIER", "1.5"))
-ATR_PERIOD = int(os.getenv("ATR_PERIOD", "14"))
+# Protected parameters - values loaded from environment with fallback to safe defaults
+def _safe_float_env(key: str, default: float) -> float:
+    val = os.getenv(key, str(default))
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        logger.warning(f"Could not convert {key}={val} to float, using default {default}")
+        return default
+
+def _safe_int_env(key: str, default: int) -> int:
+    val = os.getenv(key, str(default))
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        logger.warning(f"Could not convert {key}={val} to int, using default {default}")
+        return default
+
+DAILY_LOSS_CAP_PCT = _safe_float_env("DAILY_LOSS_CAP_PCT", 5.0)
+GLOBAL_DAILY_LOSS_CAP_PCT = _safe_float_env("GLOBAL_DAILY_LOSS_CAP_PCT", 8.0)
+MAX_CONSECUTIVE_SL = _safe_int_env("MAX_CONSECUTIVE_SL", 3)
+SL_STREAK_RESET_HOURS = _safe_int_env("SL_STREAK_RESET_HOURS", 24)
+LOSS_COOLDOWN_HOURS = _safe_int_env("LOSS_COOLDOWN_HOURS", 4)
+RISK_PER_TRADE_PCT = _safe_float_env("RISK_PER_TRADE_PCT", 0.5)
+MIN_RISK_REWARD_RATIO = _safe_float_env("MIN_RISK_REWARD_RATIO", 1.5)
+MAX_DAILY_TRADES = _safe_int_env("MAX_DAILY_TRADES", 10)
+MIN_WIN_RATE = _safe_float_env("MIN_WIN_RATE", 0.4)
+MIN_STOP_DISTANCE_PCT = _safe_float_env("MIN_STOP_DISTANCE_PCT", 0.3)
+MIN_PROFIT_PCT = _safe_float_env("MIN_PROFIT_PCT", 0.5)
+ATR_STOP_MULTIPLIER = _safe_float_env("ATR_STOP_MULTIPLIER", 1.5)
+ATR_PERIOD = _safe_int_env("ATR_PERIOD", 14)
 
 # Entry/Exit Parameters (safe ranges only)
-ENTRY_BUFFER_PCT = float(os.getenv("ENTRY_BUFFER_PCT", "0.08"))
-EXIT_BUFFER_PCT = float(os.getenv("EXIT_BUFFER_PCT", "0.03"))
-MAX_STOP_LOSS_PCT = float(os.getenv("MAX_STOP_LOSS_PCT", "0.8"))
-MAX_SLIPPAGE_PCT = float(os.getenv("MAX_SLIPPAGE_PCT", "0.5"))
+ENTRY_BUFFER_PCT = _safe_float_env("ENTRY_BUFFER_PCT", 0.1)
+EXIT_BUFFER_PCT = _safe_float_env("EXIT_BUFFER_PCT", 0.1)
+MAX_STOP_LOSS_PCT = _safe_float_env("MAX_STOP_LOSS_PCT", 2.0)
+MAX_SLIPPAGE_PCT = _safe_float_env("MAX_SLIPPAGE_PCT", 0.5)
 
 # RRR Alignment Parameters (safe ranges only)
-TP_MULTIPLIER = float(os.getenv("TP_MULTIPLIER", "1.3"))
-MIN_EARLY_EXIT_R = float(os.getenv("MIN_EARLY_EXIT_R", "1.0"))
-TRAILING_STOP_ACTIVATE_R = float(os.getenv("TRAILING_STOP_ACTIVATE_R", "1.5"))
-MAX_SL_PCT_CAP = float(os.getenv("MAX_SL_PCT_CAP", "2.0"))
+TP_MULTIPLIER = _safe_float_env("TP_MULTIPLIER", 2.5)
+MIN_EARLY_EXIT_R = _safe_float_env("MIN_EARLY_EXIT_R", 0.5)
+TRAILING_STOP_ACTIVATE_R = _safe_float_env("TRAILING_STOP_ACTIVATE_R", 1.5)
+MAX_SL_PCT_CAP = _safe_float_env("MAX_SL_PCT_CAP", 5.0)
 ENABLE_RRR_VALIDATOR = os.getenv("ENABLE_RRR_VALIDATOR", "true").lower() in {"1","true","yes","y"}
 ENABLE_RRR_HISTOGRAM = os.getenv("ENABLE_RRR_HISTOGRAM", "true").lower() in {"1","true","yes","y"}
 
 # Order Management
-ORDER_DELAY_MS = int(os.getenv("ORDER_DELAY_MS", "1000"))
-ORDER_FILL_TIMEOUT = int(os.getenv("ORDER_FILL_TIMEOUT", "120"))
-PRICE_BUFFER_PCT = float(os.getenv("PRICE_BUFFER_PCT", "0.004"))
-LIMIT_FILL_WAIT_SEC = int(os.getenv("LIMIT_FILL_WAIT_SEC", "30"))
-STOP_LIMIT_BUFFER_PCT = float(os.getenv("STOP_LIMIT_BUFFER_PCT", "0.005"))
+ORDER_DELAY_MS = _safe_int_env("ORDER_DELAY_MS", 100)
+ORDER_FILL_TIMEOUT = _safe_int_env("ORDER_FILL_TIMEOUT", 30)
+PRICE_BUFFER_PCT = _safe_float_env("PRICE_BUFFER_PCT", 0.1)
+LIMIT_FILL_WAIT_SEC = _safe_int_env("LIMIT_FILL_WAIT_SEC", 10)
+STOP_LIMIT_BUFFER_PCT = _safe_float_env("STOP_LIMIT_BUFFER_PCT", 0.1)
 
 # Time Filters
 AVOID_FUNDING_TIME = os.getenv("AVOID_FUNDING_TIME", "false").lower() in {"1","true","yes","y"}
-MIN_TIME_TO_FUNDING = int(os.getenv("MIN_TIME_TO_FUNDING", "1800"))
-MAX_POSITION_HOLD_HOURS = int(os.getenv("MAX_POSITION_HOLD_HOURS", "24"))
+MIN_TIME_TO_FUNDING = _safe_int_env("MIN_TIME_TO_FUNDING", 10)
+MAX_POSITION_HOLD_HOURS = _safe_int_env("MAX_POSITION_HOLD_HOURS", 48)
 
 # Additional Safety Parameters
-MIN_POSITION_VALUE_USD = float(os.getenv("MIN_POSITION_VALUE_USD", "2.5"))
-MAX_PRICE_CHANGE_24H_PCT = float(os.getenv("MAX_PRICE_CHANGE_24H_PCT", "15.0"))
-MIN_TRADES_FOR_EVALUATION = int(os.getenv("MIN_TRADES_FOR_EVALUATION", "5"))
+MIN_POSITION_VALUE_USD = _safe_float_env("MIN_POSITION_VALUE_USD", 5.0)
+MAX_PRICE_CHANGE_24H_PCT = _safe_float_env("MAX_PRICE_CHANGE_24H_PCT", 15.0)
+MIN_TRADES_FOR_EVALUATION = _safe_int_env("MIN_TRADES_FOR_EVALUATION", 10)
 
 # --- TRAILING STOP PARAMETERS ---
-TRAILING_STOP_ACTIVATE_PCT = float(os.getenv("TRAILING_STOP_ACTIVATE_PCT", "0.5"))
-TRAILING_STOP_DISTANCE_PCT = float(os.getenv("TRAILING_STOP_DISTANCE_PCT", "0.25"))
-BREAKEVEN_ACTIVATE_PCT = float(os.getenv("BREAKEVEN_ACTIVATE_PCT", "1.0"))
+TRAILING_STOP_ACTIVATE_PCT = _safe_float_env("TRAILING_STOP_ACTIVATE_PCT", 1.5)
+TRAILING_STOP_DISTANCE_PCT = _safe_float_env("TRAILING_STOP_DISTANCE_PCT", 0.5)
+BREAKEVEN_ACTIVATE_PCT = _safe_float_env("BREAKEVEN_ACTIVATE_PCT", 0.8)
 
 # --- EARLY STOP LOSS PROTECTION ---
-MIN_HOLD_TIME_BEFORE_SL_HOURS = float(os.getenv("MIN_HOLD_TIME_BEFORE_SL_HOURS", "2.0"))
-MAX_EARLY_SL_PCT = float(os.getenv("MAX_EARLY_SL_PCT", "1.0"))
+MIN_HOLD_TIME_BEFORE_SL_HOURS = _safe_float_env("MIN_HOLD_TIME_BEFORE_SL_HOURS", 0.5)
+MAX_EARLY_SL_PCT = _safe_float_env("MAX_EARLY_SL_PCT", 1.0)
 
 # --- IMPROVED EXIT PARAMETERS ---
-EARLY_EXIT_PROFIT_THRESHOLD = float(os.getenv("EARLY_EXIT_PROFIT_THRESHOLD", "1.5"))
+EARLY_EXIT_PROFIT_THRESHOLD = _safe_float_env("EARLY_EXIT_PROFIT_THRESHOLD", 0.3)
 MEAN_BAND_EXIT_ENABLED = os.getenv("MEAN_BAND_EXIT_ENABLED", "true").lower() in {"1","true","yes","y"}
 
 # --- SHORT POSITION CONTROL ---
 DISABLE_SHORT_POSITIONS = os.getenv("DISABLE_SHORT_POSITIONS", "false").lower() in {"1","true","yes","y"}
-SHORT_RISK_MULTIPLIER = float(os.getenv("SHORT_RISK_MULTIPLIER", "0.7"))
-SHORT_REWARD_MULTIPLIER = float(os.getenv("SHORT_REWARD_MULTIPLIER", "1.3"))
+SHORT_RISK_MULTIPLIER = _safe_float_env("SHORT_RISK_MULTIPLIER", 0.8)
+SHORT_REWARD_MULTIPLIER = _safe_float_env("SHORT_REWARD_MULTIPLIER", 0.8)
 
 # --- MARKET BIAS DETECTION ---
 ENABLE_MARKET_BIAS_DETECTION = os.getenv("ENABLE_MARKET_BIAS_DETECTION", "true").lower() in {"1","true","yes","y"}
-MARKET_BIAS_SMA_PERIOD = int(os.getenv("MARKET_BIAS_SMA_PERIOD", "50"))
-MARKET_BIAS_THRESHOLD = float(os.getenv("MARKET_BIAS_THRESHOLD", "1.5"))
+MARKET_BIAS_SMA_PERIOD = _safe_int_env("MARKET_BIAS_SMA_PERIOD", 50)
+MARKET_BIAS_THRESHOLD = _safe_float_env("MARKET_BIAS_THRESHOLD", 0.5)
 
 # --- POSITION MANAGEMENT ON RESTART ---
 SYNC_EXISTING_POSITIONS = os.getenv("SYNC_EXISTING_POSITIONS", "false").lower() in {"1","true","yes","y"}
@@ -313,10 +319,10 @@ CLOSE_EXISTING_POSITIONS_ON_STARTUP = os.getenv("CLOSE_EXISTING_POSITIONS_ON_STA
 
 # --- CIRCUIT BREAKER PARAMETERS ---
 CIRCUIT_BREAKER_ENABLED = os.getenv("CIRCUIT_BREAKER_ENABLED", "true").lower() in {"1","true","yes","y"}
-MAX_DRAWDOWN_PCT = float(os.getenv("MAX_DRAWDOWN_PCT", "8.0"))
-MAX_CONSECUTIVE_LOSSES = int(os.getenv("MAX_CONSECUTIVE_LOSSES", "3"))
-VOLATILITY_CIRCUIT_BREAKER_PCT = float(os.getenv("VOLATILITY_CIRCUIT_BREAKER_PCT", "15.0"))
-VOLATILITY_LOOKBACK_MINUTES = int(os.getenv("VOLATILITY_LOOKBACK_MINUTES", "15"))
+MAX_DRAWDOWN_PCT = _safe_float_env("MAX_DRAWDOWN_PCT", 10.0)
+MAX_CONSECUTIVE_LOSSES = _safe_int_env("MAX_CONSECUTIVE_LOSSES", 5)
+VOLATILITY_CIRCUIT_BREAKER_PCT = _safe_float_env("VOLATILITY_CIRCUIT_BREAKER_PCT", 5.0)
+VOLATILITY_LOOKBACK_MINUTES = _safe_int_env("VOLATILITY_LOOKBACK_MINUTES", 15)
 
 # --- PARTIAL PROFIT TAKING ---
 ENABLE_PARTIAL_PROFIT_TAKING = os.getenv("ENABLE_PARTIAL_PROFIT_TAKING", "true").lower() in {"1","true","yes","y"}
@@ -324,75 +330,75 @@ PARTIAL_PROFIT_LEVELS = json.loads(os.getenv("PARTIAL_PROFIT_LEVELS", '[0.5, 1.0
 PARTIAL_PROFIT_PERCENTAGES = json.loads(os.getenv("PARTIAL_PROFIT_PERCENTAGES", '[0.25, 0.25, 0.5]'))
 
 # Signal Weighting
-TREND_SIGNAL_WEIGHT = float(os.getenv("TREND_SIGNAL_WEIGHT", "0.6"))
-REVERSION_SIGNAL_WEIGHT = float(os.getenv("REVERSION_SIGNAL_WEIGHT", "0.4"))
-VOLUME_CONFIRMATION_WEIGHT = float(os.getenv("VOLUME_CONFIRMATION_WEIGHT", "0.3"))
+TREND_SIGNAL_WEIGHT = _safe_float_env("TREND_SIGNAL_WEIGHT", 0.4)
+REVERSION_SIGNAL_WEIGHT = _safe_float_env("REVERSION_SIGNAL_WEIGHT", 0.4)
+VOLUME_CONFIRMATION_WEIGHT = _safe_float_env("VOLUME_CONFIRMATION_WEIGHT", 0.1)
 
 # Conflict Zones
 ENABLE_CONFLICT_ZONES = os.getenv("ENABLE_CONFLICT_ZONES", "true").lower() in {"1","true","yes","y"}
-CONFLICT_ZONE_PCT = float(os.getenv("CONFLICT_ZONE_PCT", "1.5"))
+CONFLICT_ZONE_PCT = _safe_float_env("CONFLICT_ZONE_PCT", 1.0)
 
 # --- NEW PARAMETERS FOR TRADE FREQUENCY ---
-ANALYSIS_COOLDOWN_SEC = int(os.getenv("ANALYSIS_COOLDOWN_SEC", "10"))
-ENABLE_SINGLE_SIGNAL_MODE = os.getenv("ENABLE_SINGLE_SIGNAL_MODE", "true").lower() in {"0.7","true","yes","y"}
-SINGLE_SIGNAL_STRENGTH_THRESHOLD = float(os.getenv("SINGLE_SIGNAL_STRENGTH_THRESHOLD", "0.7"))
-MAX_NEW_POSITIONS_PER_CYCLE = int(os.getenv("MAX_NEW_POSITIONS_PER_CYCLE", "1"))
+ANALYSIS_COOLDOWN_SEC = _safe_int_env("ANALYSIS_COOLDOWN_SEC", 60)
+ENABLE_SINGLE_SIGNAL_MODE = os.getenv("ENABLE_SINGLE_SIGNAL_MODE", "true").lower() in {"1","true","yes","y"}
+SINGLE_SIGNAL_STRENGTH_THRESHOLD = _safe_float_env("SINGLE_SIGNAL_STRENGTH_THRESHOLD", 0.6)
+MAX_NEW_POSITIONS_PER_CYCLE = _safe_int_env("MAX_NEW_POSITIONS_PER_CYCLE", 1)
 
 # --- ADAPTIVE DECISION MODULES (Renamed for IP Protection) ---
 
 # EM Module - Exhaustion Mode
 ENABLE_EM = os.getenv("ENABLE_EM", "true").lower() in {"1","true","yes","y"}
-EM_CONFIRMATION_BARS = int(os.getenv("EM_CONFIRMATION_BARS", "2"))
-EM_STALL_THRESHOLD = float(os.getenv("EM_STALL_THRESHOLD", "3.0"))
+EM_CONFIRMATION_BARS = _safe_int_env("EM_CONFIRMATION_BARS", 3)
+EM_STALL_THRESHOLD = _safe_float_env("EM_STALL_THRESHOLD", 3.0)
 ENFORCE_EM_ENTRY_DELAY = os.getenv("ENFORCE_EM_ENTRY_DELAY", "true").lower() in {"1","true","yes","y"}
-EM_HOLD_HOURS = float(os.getenv("EM_HOLD_HOURS", "4.0"))
-EM_SL_RELAX_FACTOR = float(os.getenv("EM_SL_RELAX_FACTOR", "1.3"))
-EM_COOLDOWN_HOURS = int(os.getenv("EM_COOLDOWN_HOURS", "3"))
+EM_HOLD_HOURS = _safe_float_env("EM_HOLD_HOURS", 2.0)
+EM_SL_RELAX_FACTOR = _safe_float_env("EM_SL_RELAX_FACTOR", 1.2)
+EM_COOLDOWN_HOURS = _safe_int_env("EM_COOLDOWN_HOURS", 4)
 
 # SM Module - Saturation Mode
 ENABLE_SM = os.getenv("ENABLE_SM", "true").lower() in {"1","true","yes","y"}
-SM_STALL_CONFIRMATION_BARS = int(os.getenv("SM_STALL_CONFIRMATION_BARS", "2"))
-SM_SLOPE_FLIP_THRESHOLD = float(os.getenv("SM_SLOPE_FLIP_THRESHOLD", "2.0"))
-SM_ATR_EXTREME_SL_MULTIPLIER = float(os.getenv("SM_ATR_EXTREME_SL_MULTIPLIER", "2.3"))
-SM_MAX_HOLD_EXTREME_MINUTES = int(os.getenv("SM_MAX_HOLD_EXTREME_MINUTES", "120"))
+SM_STALL_CONFIRMATION_BARS = _safe_int_env("SM_STALL_CONFIRMATION_BARS", 3)
+SM_SLOPE_FLIP_THRESHOLD = _safe_float_env("SM_SLOPE_FLIP_THRESHOLD", 1.0)
+SM_ATR_EXTREME_SL_MULTIPLIER = _safe_float_env("SM_ATR_EXTREME_SL_MULTIPLIER", 0.8)
+SM_MAX_HOLD_EXTREME_MINUTES = _safe_int_env("SM_MAX_HOLD_EXTREME_MINUTES", 15)
 ENABLE_SM_FUNDING_HOLD = os.getenv("ENABLE_SM_FUNDING_HOLD", "true").lower() in {"1","true","yes","y"}
-SM_COOLDOWN_HOURS = int(os.getenv("SM_COOLDOWN_HOURS", "3"))
+SM_COOLDOWN_HOURS = _safe_int_env("SM_COOLDOWN_HOURS", 2)
 SM_TIME_EXIT_NEUTRAL_CIRCUIT = os.getenv("SM_TIME_EXIT_NEUTRAL_CIRCUIT", "true").lower() in {"1","true","yes","y"}
 
 # LM Module - Leverage Management
 ENABLE_LM = os.getenv("ENABLE_LM", "false").lower() in {"1","true","yes","y"}
-LM_TIME_MINUTES = int(os.getenv("LM_TIME_MINUTES", "30"))
-LM_SIZE_MULTIPLIER = float(os.getenv("LM_SIZE_MULTIPLIER", "0.25"))
-MAX_TOTAL_LEVERAGE = int(os.getenv("MAX_TOTAL_LEVERAGE", "21"))
+LM_TIME_MINUTES = _safe_int_env("LM_TIME_MINUTES", 30)
+LM_SIZE_MULTIPLIER = _safe_float_env("LM_SIZE_MULTIPLIER", 0.5)
+MAX_TOTAL_LEVERAGE = _safe_int_env("MAX_TOTAL_LEVERAGE", 10)
 
 # Adaptive Signal Management
-SM_CONSECUTIVE_CANDLES_REQUIRED = int(os.getenv("SM_CONSECUTIVE_CANDLES_REQUIRED", "3"))
-HARD_SL_DISABLE_HOURS = float(os.getenv("HARD_SL_DISABLE_HOURS", "2.5"))
-TIME_STOP_HOURS = float(os.getenv("TIME_STOP_HOURS", "3.0"))
+SM_CONSECUTIVE_CANDLES_REQUIRED = _safe_int_env("SM_CONSECUTIVE_CANDLES_REQUIRED", 3)
+HARD_SL_DISABLE_HOURS = _safe_float_env("HARD_SL_DISABLE_HOURS", 4.0)
+TIME_STOP_HOURS = _safe_float_env("TIME_STOP_HOURS", 6.0)
 EXIT_PRIORITY_REORDERED = os.getenv("EXIT_PRIORITY_REORDERED", "true").lower() in {"1","true","yes","y"}
-ATR_COMPRESSION_RESUME_THRESHOLD = float(os.getenv("ATR_COMPRESSION_RESUME_THRESHOLD", "0.7"))
-SL_SUPPRESSION_ATR_MULTIPLIER = float(os.getenv("SL_SUPPRESSION_ATR_MULTIPLIER", "3.0"))
+ATR_COMPRESSION_RESUME_THRESHOLD = _safe_float_env("ATR_COMPRESSION_RESUME_THRESHOLD", 0.3)
+SL_SUPPRESSION_ATR_MULTIPLIER = _safe_float_env("SL_SUPPRESSION_ATR_MULTIPLIER", 0.5)
 CONDITIONAL_LEVERAGE_ADDON = os.getenv("CONDITIONAL_LEVERAGE_ADDON", "true").lower() in {"1","true","yes","y"}
-LM_SAFETY_FUNDING_WINDOW_MIN = int(os.getenv("LM_SAFETY_FUNDING_WINDOW_MIN", "30"))
-SM_TIME_DECAY_MINUTES = int(os.getenv("SM_TIME_DECAY_MINUTES", "15"))
-DO_NOTHING_PHASE_MINUTES = int(os.getenv("DO_NOTHING_PHASE_MINUTES", "60"))
+LM_SAFETY_FUNDING_WINDOW_MIN = _safe_int_env("LM_SAFETY_FUNDING_WINDOW_MIN", 30)
+SM_TIME_DECAY_MINUTES = _safe_int_env("SM_TIME_DECAY_MINUTES", 60)
+DO_NOTHING_PHASE_MINUTES = _safe_int_env("DO_NOTHING_PHASE_MINUTES", 15)
 CONFLICT_STRENGTH_WITH_SM_TIME = os.getenv("CONFLICT_STRENGTH_WITH_SM_TIME", "true").lower() in {"1","true","yes","y"}
-MIN_SM_TIME_SINCE_EXTREME = int(os.getenv("MIN_SM_TIME_SINCE_EXTREME", "5"))
+MIN_SM_TIME_SINCE_EXTREME = _safe_int_env("MIN_SM_TIME_SINCE_EXTREME", 5)
 ENHANCED_ENTRY_LOGGING = os.getenv("ENHANCED_ENTRY_LOGGING", "true").lower() in {"1","true","yes","y"}
 ENTRY_SNAPSHOT_LOGGING = os.getenv("ENTRY_SNAPSHOT_LOGGING", "true").lower() in {"1","true","yes","y"}
 
 # LRE Module - Execution Safety Layer
-MAX_TOTAL_RISK_R = float(os.getenv("MAX_TOTAL_RISK_R", "1.0"))
+MAX_TOTAL_RISK_R = _safe_float_env("MAX_TOTAL_RISK_R", 6.0)
 BLOCK_ADDS_WATCH_ZONE = os.getenv("BLOCK_ADDS_WATCH_ZONE", "true").lower() in {"1","true","yes","y"}
 BLOCK_ADDS_REDUCE_ZONE = os.getenv("BLOCK_ADDS_REDUCE_ZONE", "false").lower() in {"1","true","yes","y"}
 BLOCK_ADDS_CRITICAL_ZONE = os.getenv("BLOCK_ADDS_CRITICAL_ZONE", "true").lower() in {"1","true","yes","y"}
 AUTO_LEVERAGE_REDUCTION_ENABLED = os.getenv("AUTO_LEVERAGE_REDUCTION_ENABLED", "true").lower() in {"1","true","yes","y"}
-ABSOLUTE_TIME_STOP_HOURS = float(os.getenv("ABSOLUTE_TIME_STOP_HOURS", "6.0"))
+ABSOLUTE_TIME_STOP_HOURS = _safe_float_env("ABSOLUTE_TIME_STOP_HOURS", 24.0)
 ENFORCE_ABSOLUTE_TIME_STOP = os.getenv("ENFORCE_ABSOLUTE_TIME_STOP", "true").lower() in {"1","true","yes","y"}
 ENABLE_PRETRADE_SIMULATION = os.getenv("ENABLE_PRETRADE_SIMULATION", "false").lower() in {"1","true","yes","y"}
-SIMULATION_LOOKBACK_BARS = int(os.getenv("SIMULATION_LOOKBACK_BARS", "100"))
-DAILY_EQUITY_DRAWDOWN_LIMIT_PCT = float(os.getenv("DAILY_EQUITY_DRAWDOWN_LIMIT_PCT", "3.0"))
-ATH_EQUITY_DRAWDOWN_LIMIT_PCT = float(os.getenv("ATH_EQUITY_DRAWDOWN_LIMIT_PCT", "10.0"))
+SIMULATION_LOOKBACK_BARS = _safe_int_env("SIMULATION_LOOKBACK_BARS", 50)
+DAILY_EQUITY_DRAWDOWN_LIMIT_PCT = _safe_float_env("DAILY_EQUITY_DRAWDOWN_LIMIT_PCT", 5.0)
+ATH_EQUITY_DRAWDOWN_LIMIT_PCT = _safe_float_env("ATH_EQUITY_DRAWDOWN_LIMIT_PCT", 10.0)
 ENABLE_EQUITY_THROTTLING = os.getenv("ENABLE_EQUITY_THROTTLING", "true").lower() in {"1","true","yes","y"}
 ENABLE_LRE_LOGGING = os.getenv("ENABLE_LRE_LOGGING", "true").lower() in {"1","true","yes","y"}
 
@@ -400,39 +406,39 @@ ENABLE_LRE_LOGGING = os.getenv("ENABLE_LRE_LOGGING", "true").lower() in {"1","tr
 ENFORCE_OE = os.getenv("ENFORCE_OE", "true").lower() in {"1","true","yes","y"}
 STRATEGY_ID = os.getenv("STRATEGY_ID", "SIGNAL_CONFLICT_V2")
 ENABLE_LL = os.getenv("ENABLE_LL", "true").lower() in {"1","true","yes","y"}
-LL_TRANCHES = int(os.getenv("LL_TRANCHES", "3"))
-LL_SPACING_PCT = float(os.getenv("LL_SPACING_PCT", "1.0"))
-RISK_PER_TRANCHE_PCT = float(os.getenv("RISK_PER_TRANCHE_PCT", "0.33"))
+LL_TRANCHES = _safe_int_env("LL_TRANCHES", 3)
+LL_SPACING_PCT = _safe_float_env("LL_SPACING_PCT", 1.0)
+RISK_PER_TRANCHE_PCT = _safe_float_env("RISK_PER_TRANCHE_PCT", 0.3)
 BLOCK_ADDS_ON_VOLUME_EXPANSION = os.getenv("BLOCK_ADDS_ON_VOLUME_EXPANSION", "true").lower() in {"1","true","yes","y"}
-VOLUME_EXPANSION_THRESHOLD = float(os.getenv("VOLUME_EXPANSION_THRESHOLD", "2.0"))
+VOLUME_EXPANSION_THRESHOLD = _safe_float_env("VOLUME_EXPANSION_THRESHOLD", 2.0)
 PREFER_ADDS_NEAR_FUNDING = os.getenv("PREFER_ADDS_NEAR_FUNDING", "true").lower() in {"1","true","yes","y"}
-FUNDING_WINDOW_MINUTES = int(os.getenv("FUNDING_WINDOW_MINUTES", "60"))
+FUNDING_WINDOW_MINUTES = _safe_int_env("FUNDING_WINDOW_MINUTES", 15)
 REDUCE_LAST_TRANCHE_FIRST = os.getenv("REDUCE_LAST_TRANCHE_FIRST", "true").lower() in {"1","true","yes","y"}
 ENABLE_ENTRY_BLOCK_LOGGING = os.getenv("ENABLE_ENTRY_BLOCK_LOGGING", "true").lower() in {"1","true","yes","y"}
 
 # Position Reconciliation
 ALLOW_FOREIGN_POSITION_TOUCH = os.getenv("ALLOW_FOREIGN_POSITION_TOUCH", "false").lower() in {"1","true","yes","y"}
 ENABLE_POSITION_RECONCILIATION = os.getenv("ENABLE_POSITION_RECONCILIATION", "true").lower() in {"1","true","yes","y"}
-RECONCILIATION_INTERVAL_MINUTES = int(os.getenv("RECONCILIATION_INTERVAL_MINUTES", "5"))
+RECONCILIATION_INTERVAL_MINUTES = _safe_int_env("RECONCILIATION_INTERVAL_MINUTES", 15)
 
 # Order Fill Verification
-ORDER_FILL_TIMEOUT_SEC = int(os.getenv("ORDER_FILL_TIMEOUT_SEC", "30"))
-ORDER_FILL_POLL_INTERVAL_SEC = float(os.getenv("ORDER_FILL_POLL_INTERVAL_SEC", "0.5"))
-MAX_ORDER_FILL_POLL_ATTEMPTS = int(os.getenv("MAX_ORDER_FILL_POLL_ATTEMPTS", "60"))
-ORDER_PENDING_RETRY_CYCLES = int(os.getenv("ORDER_PENDING_RETRY_CYCLES", "3"))
+ORDER_FILL_TIMEOUT_SEC = _safe_int_env("ORDER_FILL_TIMEOUT_SEC", 30)
+ORDER_FILL_POLL_INTERVAL_SEC = _safe_float_env("ORDER_FILL_POLL_INTERVAL_SEC", 0.5)
+MAX_ORDER_FILL_POLL_ATTEMPTS = _safe_int_env("MAX_ORDER_FILL_POLL_ATTEMPTS", 60)
+ORDER_PENDING_RETRY_CYCLES = _safe_int_env("ORDER_PENDING_RETRY_CYCLES", 3)
 
 # LL Module - Laddered Entry & Leverage
 ENABLE_LL_ENTRY = os.getenv("ENABLE_LL_ENTRY", "true").lower() in {"1","true","yes","y"}
-LL_STALL_THRESHOLD = float(os.getenv("LL_STALL_THRESHOLD", "3.5"))
-LL_STALL_BARS_REQUIRED = int(os.getenv("LL_STALL_BARS_REQUIRED", "2"))
+LL_STALL_THRESHOLD = _safe_float_env("LL_STALL_THRESHOLD", 3.0)
+LL_STALL_BARS_REQUIRED = _safe_int_env("LL_STALL_BARS_REQUIRED", 5)
 ENABLE_LL_STALL_CHECK = os.getenv("ENABLE_LL_STALL_CHECK", "true").lower() in {"1","true","yes","y"}
 ENABLE_LM_LADDER = os.getenv("ENABLE_LM_LADDER", "true").lower() in {"1","true","yes","y"}
-LM_MIN_LIQ_DISTANCE_PCT = float(os.getenv("LM_MIN_LIQ_DISTANCE_PCT", "25.0"))
-SL_DISABLE_HOURS = float(os.getenv("SL_DISABLE_HOURS", "2.5"))
+LM_MIN_LIQ_DISTANCE_PCT = _safe_float_env("LM_MIN_LIQ_DISTANCE_PCT", 15.0)
+SL_DISABLE_HOURS = _safe_float_env("SL_DISABLE_HOURS", 2.0)
 ENABLE_TDM_MANDATORY = os.getenv("ENABLE_TDM_MANDATORY", "true").lower() in {"1","true","yes","y"}
 ORDER_ID_PREFIX = os.getenv("ORDER_ID_PREFIX", "SC")
 ENABLE_ORDER_TAGGING = os.getenv("ENABLE_ORDER_TAGGING", "true").lower() in {"1","true","yes","y"}
-TOKEN_COOLDOWN_HOURS = int(os.getenv("TOKEN_COOLDOWN_HOURS", "3"))
+TOKEN_COOLDOWN_HOURS = _safe_int_env("TOKEN_COOLDOWN_HOURS", 4)
 ENABLE_STRICT_COOLDOWN = os.getenv("ENABLE_STRICT_COOLDOWN", "true").lower() in {"1","true","yes","y"}
 ENABLE_LADDER_LOGGING = os.getenv("ENABLE_LADDER_LOGGING", "true").lower() in {"1","true","yes","y"}
 LADDER_LOG_LEVEL = os.getenv("LADDER_LOG_LEVEL", "INFO")
@@ -474,51 +480,51 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 # Agent Memory
 ENABLE_AGENT_MEMORY = os.getenv("ENABLE_AGENT_MEMORY", "true").lower() in {"1","true","yes","y"}
-MEMORY_LOOKBACK_DAYS = int(os.getenv("MEMORY_LOOKBACK_DAYS", "30"))
-MEMORY_CONFIDENCE_BOOST = float(os.getenv("MEMORY_CONFIDENCE_BOOST", "0.08"))
-MEMORY_CONFIDENCE_PENALTY = float(os.getenv("MEMORY_CONFIDENCE_PENALTY", "0.05"))
+MEMORY_LOOKBACK_DAYS = _safe_int_env("MEMORY_LOOKBACK_DAYS", 30)
+MEMORY_CONFIDENCE_BOOST = _safe_float_env("MEMORY_CONFIDENCE_BOOST", 0.05)
+MEMORY_CONFIDENCE_PENALTY = _safe_float_env("MEMORY_CONFIDENCE_PENALTY", 0.05)
 
 # Dashboard
-DASHBOARD_REFRESH_SEC = int(os.getenv("DASHBOARD_REFRESH_SEC", "5"))
-DASHBOARD_MAX_HISTORY = int(os.getenv("DASHBOARD_MAX_HISTORY", "100"))
+DASHBOARD_REFRESH_SEC = _safe_int_env("DASHBOARD_REFRESH_SEC", 5)
+DASHBOARD_MAX_HISTORY = _safe_int_env("DASHBOARD_MAX_HISTORY", 200)
 
 # Confidence Engine
 ENABLE_CONFIDENCE_ENGINE = os.getenv("ENABLE_CONFIDENCE_ENGINE", "true").lower() in {"1","true","yes","y"}
-CONFIDENCE_TREND_WEIGHT = float(os.getenv("CONFIDENCE_TREND_WEIGHT", "0.3"))
-CONFIDENCE_REVERSION_WEIGHT = float(os.getenv("CONFIDENCE_REVERSION_WEIGHT", "0.3"))
-CONFIDENCE_VOLUME_WEIGHT = float(os.getenv("CONFIDENCE_VOLUME_WEIGHT", "0.2"))
-CONFIDENCE_REGIME_WEIGHT = float(os.getenv("CONFIDENCE_REGIME_WEIGHT", "0.2"))
+CONFIDENCE_TREND_WEIGHT = _safe_float_env("CONFIDENCE_TREND_WEIGHT", 0.3)
+CONFIDENCE_REVERSION_WEIGHT = _safe_float_env("CONFIDENCE_REVERSION_WEIGHT", 0.3)
+CONFIDENCE_VOLUME_WEIGHT = _safe_float_env("CONFIDENCE_VOLUME_WEIGHT", 0.2)
+CONFIDENCE_REGIME_WEIGHT = _safe_float_env("CONFIDENCE_REGIME_WEIGHT", 0.2)
 
 # AI Decision History
-MAX_DECISION_HISTORY = int(os.getenv("MAX_DECISION_HISTORY", "100"))
+MAX_DECISION_HISTORY = _safe_int_env("MAX_DECISION_HISTORY", 200)
 ENABLE_DECISION_HISTORY_LOGGING = os.getenv("ENABLE_DECISION_HISTORY_LOGGING", "true").lower() in {"1","true","yes","y"}
 
 # TDM Module - Time Decay Management
 ENABLE_TDM = os.getenv("ENABLE_TDM", "true").lower() in {"1","true","yes","y"}
-TDM_MAX_HOLD_HOURS = float(os.getenv("TDM_MAX_HOLD_HOURS", "2.0"))
-TDM_SL_RELAX_ATR_PER_HOUR = float(os.getenv("TDM_SL_RELAX_ATR_PER_HOUR", "0.25"))
-TDM_ADX_THRESHOLD = float(os.getenv("TDM_ADX_THRESHOLD", "25.0"))
-LRE_ATR_MULTIPLIER = float(os.getenv("LRE_ATR_MULTIPLIER", "3.0"))
-MIN_HOLD_TIME_MINUTES = int(os.getenv("MIN_HOLD_TIME_MINUTES", "30"))
-MAX_REDUCE_ONLY_FAILURES = int(os.getenv("MAX_REDUCE_ONLY_FAILURES", "2"))
-TOKEN_COOLDOWN_HOURS_AFTER_EXIT = int(os.getenv("TOKEN_COOLDOWN_HOURS_AFTER_EXIT", "3"))
+TDM_MAX_HOLD_HOURS = _safe_float_env("TDM_MAX_HOLD_HOURS", 6.0)
+TDM_SL_RELAX_ATR_PER_HOUR = _safe_float_env("TDM_SL_RELAX_ATR_PER_HOUR", 0.1)
+TDM_ADX_THRESHOLD = _safe_float_env("TDM_ADX_THRESHOLD", 25.0)
+LRE_ATR_MULTIPLIER = _safe_float_env("LRE_ATR_MULTIPLIER", 2.0)
+MIN_HOLD_TIME_MINUTES = _safe_int_env("MIN_HOLD_TIME_MINUTES", 5)
+MAX_REDUCE_ONLY_FAILURES = _safe_int_env("MAX_REDUCE_ONLY_FAILURES", 3)
+TOKEN_COOLDOWN_HOURS_AFTER_EXIT = _safe_int_env("TOKEN_COOLDOWN_HOURS_AFTER_EXIT", 1)
 ENABLE_EXIT_ATTEMPT_LOCK = os.getenv("ENABLE_EXIT_ATTEMPT_LOCK", "true").lower() in {"1","true","yes","y"}
 EXIT_REASON_NORMALIZATION = os.getenv("EXIT_REASON_NORMALIZATION", "true").lower() in {"1","true","yes","y"}
 
 # Critical Safety
 ENABLE_TDM_CONFLICT = os.getenv("ENABLE_TDM_CONFLICT", "false").lower() in {"1","true","yes","y"}
-HARD_MARKET_CLOSE_AFTER_FAILURES = int(os.getenv("HARD_MARKET_CLOSE_AFTER_FAILURES", "2"))
+HARD_MARKET_CLOSE_AFTER_FAILURES = _safe_int_env("HARD_MARKET_CLOSE_AFTER_FAILURES", 5)
 ENFORCE_MIN_HOLD_TIME = os.getenv("ENFORCE_MIN_HOLD_TIME", "true").lower() in {"1","true","yes","y"}
-MAX_HOLD_TIME_HOURS = int(os.getenv("MAX_HOLD_TIME_HOURS", "6"))
+MAX_HOLD_TIME_HOURS = _safe_int_env("MAX_HOLD_TIME_HOURS", 12)
 USE_RSI_SLOPE_FOR_EXIT = os.getenv("USE_RSI_SLOPE_FOR_EXIT", "true").lower() in {"1","true","yes","y"}
 
 # CZ Framework - Conflict Zones
 ENABLE_CZ = os.getenv("ENABLE_CZ", "true").lower() in {"1","true","yes","y"}
-CZ_PCT = float(os.getenv("CZ_PCT", "1.5"))
+CZ_PCT = _safe_float_env("CZ_PCT", 1.0)
 
 # --------------------------------- Stablecoin Blacklist --------------------------------- #
 STABLECOIN_BLACKLIST = {
-    "USDCUSDT", "BUSDUSDT", "TUSDUSDT", "FDUSDUSDT", "TRUMPUSDT", "MELANIAUSDT", "WLFIUSDT", "SOLUSDT",
+    "USDCUSDT", "BUSDUSDT", "TUSDUSDT", "FDUSDUSDT", "TRUMPUSDT", "XMRUSDT", "BNBUSDT", "MELANIAUSDT", "WLFIUSDT", "SOLUSDT",
     "USDPUSDT", "DAIUSDT", "USDTUSDT", "EURUSDT", "GBPUSDT"
 }
 
@@ -2151,7 +2157,7 @@ class ConflictStore:
                 )
             """)
             
-            # Active positions table
+            # Active positions table - ADDED missing columns for TP/SL order IDs
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS active_positions (
                     symbol TEXT PRIMARY KEY,
@@ -2734,9 +2740,7 @@ class RSILadderManager:
 
 class LiquidationZoneManager:
     def __init__(self):
-        pass
-
-# ================================================================
+        pass# ================================================================
 # EQUITY THROTTLER
 # ================================================================
 
@@ -2861,9 +2865,9 @@ class SignalConflictEngine:
         # AI Decision Review Layer (Gemini with OpenAI fallback)
         self.ai_decision_review = AIDecisionReviewLayer(self.agent_memory)
         
-        self.ENTRY_TIMEOUT_SEC = int(os.getenv("ENTRY_TIMEOUT_SEC", "60"))
-        self.FUNDING_GUARD_MINUTES = int(os.getenv("FUNDING_GUARD_MINUTES", "10"))
-        self.MAX_GLOBAL_EXPOSURE_PCT = float(os.getenv("MAX_GLOBAL_EXPOSURE_PCT", "40"))
+        self.ENTRY_TIMEOUT_SEC = _safe_int_env("ENTRY_TIMEOUT_SEC", 60)
+        self.FUNDING_GUARD_MINUTES = _safe_int_env("FUNDING_GUARD_MINUTES", 15)
+        self.MAX_GLOBAL_EXPOSURE_PCT = _safe_float_env("MAX_GLOBAL_EXPOSURE_PCT", 50.0)
         
         self._active_positions_lock = asyncio.Lock()
         self._blocked_symbols_lock = asyncio.Lock()
@@ -2876,19 +2880,7 @@ class SignalConflictEngine:
         logger.info("🧠 AGENT MEMORY: Historical conflict learning enabled")
         logger.info("⚖️ AI DECISION REVIEW: Gemini LLM override layer enabled (OpenAI fallback)")
         logger.info("📊 AI DECISION HISTORY: Recording all decisions even without trades")
-        logger.info(f"✅ EM Module: {ENABLE_EM} with {EM_CONFIRMATION_BARS} bars")
-        logger.info(f"✅ SM Module: {ENABLE_SM} with {SM_STALL_CONFIRMATION_BARS} bars")
-        logger.info(f"✅ TDM Module: {ENABLE_TDM} with max hold {TDM_MAX_HOLD_HOURS}h")
-        logger.info(f"✅ LM Module: {ENABLE_LM}")
-        logger.info(f"✅ CZ Framework: {ENABLE_CZ}")
-        logger.info(f"✅ LRE Module: {ENABLE_LRE_LOGGING}")
-        logger.info(f"✅ LR Framework: Enabled")
-        logger.info(f"✅ OE Controls: {ENFORCE_OE}")
-        logger.info(f"✅ HARD_MARKET_CLOSE_AFTER_FAILURES: {HARD_MARKET_CLOSE_AFTER_FAILURES} failures")
-        logger.info(f"✅ ENFORCE_MIN_HOLD_TIME: {ENFORCE_MIN_HOLD_TIME} minutes {MIN_HOLD_TIME_MINUTES}")
-        logger.info(f"✅ MAX_HOLD_TIME_HOURS: {MAX_HOLD_TIME_HOURS} hours")
-        logger.info(f"✅ USE_RSI_SLOPE_FOR_EXIT: {USE_RSI_SLOPE_FOR_EXIT}")
-        logger.info(f"✅ TP/SL ORDERS: ENABLED with dynamic price buffer {PRICE_BUFFER_PCT*100}%")
+        logger.info("✅ Adaptive modules initialized")
 
     def is_dry_run(self):
         return DRY_RUN or self.force_dry_run
@@ -3636,11 +3628,12 @@ class SignalConflictEngine:
 
     async def place_stop_loss_order(self, symbol: str, side: str, quantity: float, 
                                    sl_price: float, position_side: str = None) -> Optional[int]:
-        """Place a stop loss order for a position with dynamic buffer"""
+        """Place a stop loss order for a position using STOP_MARKET (no price param)"""
         try:
             # Determine the stop side: SELL for LONG, BUY for SHORT
             stop_side = 'SELL' if side == 'BUY' else 'BUY'
             
+            # Use the stopPrice as the trigger, no price parameter for STOP_MARKET
             # Add a small buffer to avoid premature triggering
             buffer_pct = 0.001  # 0.1% buffer
             if side == 'BUY':
@@ -3651,7 +3644,7 @@ class SignalConflictEngine:
             # Log the SL order details
             logger.warning(
                 f"[{symbol}] SL ORDER: side={stop_side}, "
-                f"price={sl_price:.4f} (adjusted={adjusted_sl_price:.4f}), "
+                f"stopPrice={adjusted_sl_price:.4f}, "
                 f"qty={quantity:.8f}, position_side={position_side}"
             )
             
@@ -3670,9 +3663,8 @@ class SignalConflictEngine:
                 'type': 'STOP_MARKET',
                 'quantity': quantity,
                 'stopPrice': adjusted_sl_price,
-                'reduceOnly': True,
                 'newClientOrderId': client_order_id,
-                'price': adjusted_sl_price
+                'closePosition': True
             }
             
             if ENABLE_HEDGE_MODE_COMPATIBILITY and position_side:
@@ -3693,11 +3685,12 @@ class SignalConflictEngine:
     
     async def place_take_profit_order(self, symbol: str, side: str, quantity: float,
                                      tp_price: float, position_side: str = None) -> Optional[int]:
-        """Place a take profit order for a position with dynamic buffer"""
+        """Place a take profit order for a position using TAKE_PROFIT_MARKET (no price param)"""
         try:
             # Determine the TP side: SELL for LONG, BUY for SHORT
             tp_side = 'SELL' if side == 'BUY' else 'BUY'
             
+            # Use the stopPrice as the trigger, no price parameter for TAKE_PROFIT_MARKET
             # Add a small buffer to avoid premature triggering
             buffer_pct = 0.001  # 0.1% buffer
             if side == 'BUY':
@@ -3708,7 +3701,7 @@ class SignalConflictEngine:
             # Log the TP order details
             logger.warning(
                 f"[{symbol}] TP ORDER: side={tp_side}, "
-                f"price={tp_price:.4f} (adjusted={adjusted_tp_price:.4f}), "
+                f"stopPrice={adjusted_tp_price:.4f}, "
                 f"qty={quantity:.8f}, position_side={position_side}"
             )
             
@@ -3727,9 +3720,8 @@ class SignalConflictEngine:
                 'type': 'TAKE_PROFIT_MARKET',
                 'quantity': quantity,
                 'stopPrice': adjusted_tp_price,
-                'reduceOnly': True,
                 'newClientOrderId': client_order_id,
-                'price': adjusted_tp_price
+                'closePosition': True
             }
             
             if ENABLE_HEDGE_MODE_COMPATIBILITY and position_side:
@@ -4105,13 +4097,10 @@ class SignalConflictEngine:
             order_params = {'symbol': symbol, 'side': binance_side, 'type': type, 'quantity': quantity}
             if reduce_only:
                 order_params['reduceOnly'] = True
-            if ENABLE_HEDGE_MODE_COMPATIBILITY:
-                if position_side:
-                    order_params['positionSide'] = position_side
-                elif binance_side == 'BUY':
-                    order_params['positionSide'] = 'LONG'
-                else:
-                    order_params['positionSide'] = 'SHORT'
+            if ENABLE_HEDGE_MODE_COMPATIBILITY and position_side:
+                order_params['positionSide'] = position_side
+            elif position_side:
+                order_params['positionSide'] = position_side
             if client_order_id:
                 if len(client_order_id) > 35:
                     import uuid
@@ -4530,7 +4519,6 @@ async def main():
     logger.info(f"🧠 Agent Memory: {'ENABLED' if ENABLE_AGENT_MEMORY else 'DISABLED'}")
     logger.info(f"📊 Dashboard: {'ENABLED' if ENABLE_DASHBOARD else 'DISABLED'}")
     logger.info(f"📝 AI Decision History: Recording all decisions even without trades")
-    logger.info(f"✅ TP/SL ORDERS: ENABLED")
     logger.info("=" * 70)
     
     try:
