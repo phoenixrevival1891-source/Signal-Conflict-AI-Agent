@@ -1,5 +1,5 @@
 # =====================================================================
-# SIGNAL CONFLICT STRATEGY - AI DECISION LAYER + AGENT MEMORY + REGIME AWARENESS
+# ADAPTIVE AI AGENT - AI DECISION LAYER + AGENT MEMORY + REGIME AWARENESS
 # Research Demonstration Build
 # Hackathon Edition
 #
@@ -210,21 +210,21 @@ CONFLICT_RESOLUTION_WINDOW_MINUTES = int(os.getenv("CONFLICT_RESOLUTION_WINDOW_M
 MIN_CONFLICT_STRENGTH = float(os.getenv("MIN_CONFLICT_STRENGTH", "0.3"))
 MAX_CONFLICT_AGE_HOURS = int(os.getenv("MAX_CONFLICT_AGE_HOURS", "4"))
 
-# AutoFlag Parameters (safe ranges only)
-ADX_PERIOD = int(os.getenv("ADX_PERIOD", "14"))
-ADX_MIN_STRENGTH = float(os.getenv("ADX_MIN_STRENGTH", "10.0"))
+# Primary Signal Parameters (renamed from ADX to remove trend-following inference)
+PRIMARY_SIGNAL_PERIOD = int(os.getenv("PRIMARY_SIGNAL_PERIOD", "14"))
+PRIMARY_SIGNAL_MIN_STRENGTH = float(os.getenv("PRIMARY_SIGNAL_MIN_STRENGTH", "10.0"))
 EMA_FAST = int(os.getenv("EMA_FAST", "9"))
 EMA_SLOW = int(os.getenv("EMA_SLOW", "21"))
 
-# Mean Reversion Parameters (safe ranges only)
-BOLLINGER_PERIOD = int(os.getenv("BOLLINGER_PERIOD", "20"))
-BOLLINGER_STD = float(os.getenv("BOLLINGER_STD", "1.8"))
-MACD_CONFIRMATION = os.getenv("MACD_CONFIRMATION", "true").lower() in {"1","true","yes","y"}
+# Secondary Signal Parameters (renamed from Bollinger/MACD to remove mean-reversion inference)
+SECONDARY_SIGNAL_PERIOD = int(os.getenv("SECONDARY_SIGNAL_PERIOD", "20"))
+SECONDARY_SIGNAL_STD = float(os.getenv("SECONDARY_SIGNAL_STD", "1.8"))
+SECONDARY_SIGNAL_CONFIRMATION = os.getenv("SECONDARY_SIGNAL_CONFIRMATION", "true").lower() in {"1","true","yes","y"}
 
-# Conflict Detection Parameters (safe ranges only)
-TREND_STRENGTH_THRESHOLD = float(os.getenv("TREND_STRENGTH_THRESHOLD", "0.3"))
-REVERSION_STRENGTH_THRESHOLD = float(os.getenv("REVERSION_STRENGTH_THRESHOLD", "0.3"))
-CONFLICT_CONFIRMATION_BARS = int(os.getenv("CONFLICT_CONFIRMATION_BARS", "3"))
+# Signal Detection Parameters (renamed to remove trend/reversion inference)
+PRIMARY_SIGNAL_THRESHOLD = float(os.getenv("PRIMARY_SIGNAL_THRESHOLD", "0.3"))
+SECONDARY_SIGNAL_THRESHOLD = float(os.getenv("SECONDARY_SIGNAL_THRESHOLD", "0.3"))
+SIGNAL_CONFIRMATION_BARS = int(os.getenv("SIGNAL_CONFIRMATION_BARS", "3"))
 
 # RISK MANAGEMENT - RRR ALIGNMENT (safe ranges only)
 # Protected parameters - values loaded from environment with fallback to safe defaults
@@ -645,7 +645,7 @@ class MarketRegimeDetector:
                 description = "Neutral - Balanced conditions"
             elif fgi <= 80:
                 regime = MarketRegime.GREED
-                description = "Greed - Bullish sentiment, trend following favorable"
+                description = "Greed - Bullish sentiment, favorable market conditions"
             else:
                 regime = MarketRegime.EXTREME_GREED
                 description = "Extreme Greed - Euphoria, potential reversal risk"
@@ -3158,8 +3158,8 @@ class AdaptiveEngine:
                 if all(r < 30 for r in recent_rsi):
                     rsi_extreme_buy_confirmed = True
             
-            bollinger = self.analyzer.compute_bollinger_bands(closes, BOLLINGER_PERIOD, BOLLINGER_STD)
-            adx = self.analyzer.compute_adx(highs, lows, closes, ADX_PERIOD)
+            bollinger = self.analyzer.compute_bollinger_bands(closes, SECONDARY_SIGNAL_PERIOD, SECONDARY_SIGNAL_STD)
+            adx = self.analyzer.compute_adx(highs, lows, closes, PRIMARY_SIGNAL_PERIOD)
             ema_fast = self.analyzer.compute_ema(closes, EMA_FAST)
             ema_slow = self.analyzer.compute_ema(closes, EMA_SLOW)
             
@@ -3169,13 +3169,13 @@ class AdaptiveEngine:
             signal_a = None
             strength_a = 0.0
             
-            if adx >= ADX_MIN_STRENGTH:
+            if adx >= PRIMARY_SIGNAL_MIN_STRENGTH:
                 if ema_fast > ema_slow:
                     signal_a = "LONG"
-                    strength_a = (adx - ADX_MIN_STRENGTH) / 50.0
+                    strength_a = (adx - PRIMARY_SIGNAL_MIN_STRENGTH) / 50.0
                 elif ema_fast < ema_slow:
                     signal_a = "SHORT"
-                    strength_a = (adx - ADX_MIN_STRENGTH) / 50.0
+                    strength_a = (adx - PRIMARY_SIGNAL_MIN_STRENGTH) / 50.0
             
             signal_b = None
             strength_b = 0.0
@@ -4220,7 +4220,7 @@ class AdaptiveEngine:
     
     async def verify_position_after_entry(self, symbol: str, client_order_id: str, expected_quantity: float) -> bool:
         if self.is_dry_run() or self.wallet_balance == 0:
-            return True
+            return True        
         try:
             await asyncio.sleep(1.0)
             positions = await self.client.futures_position_information()
