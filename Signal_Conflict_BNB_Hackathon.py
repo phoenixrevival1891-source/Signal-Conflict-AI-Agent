@@ -1,6 +1,5 @@
 # =====================================================================
-# SIGNAL CONFLICT STRATEGY - TREND VS MEAN REVERSION DIVERGENCE
-# HACKATHON EDITION - AI DECISION LAYER + AGENT MEMORY + REGIME AWARENESS
+# SIGNAL CONFLICT STRATEGY - AI DECISION LAYER + AGENT MEMORY + REGIME AWARENESS
 # Research Demonstration Build
 # Hackathon Edition
 #
@@ -83,7 +82,7 @@ except ImportError:
         logger.warning("Gemini not available. LLM decision layer will use rule-based fallback.")
 
 # --------------------------------- CLI & ENV --------------------------------- #
-parser = argparse.ArgumentParser(description="Binance USDT Futures Bot - Signal Conflict Strategy")
+parser = argparse.ArgumentParser(description="Binance USDT Futures Bot - Adaptive Strategy")
 parser.add_argument("--verbose", action="store_true", help="Enable detailed per-symbol debug logging")
 parser.add_argument("--selftest", type=str, default="", help="Run self-test for a single symbol and exit")
 parser.add_argument("--test-connection", action="store_true", help="Test API connection and exit")
@@ -92,7 +91,7 @@ parser.add_argument("--close-all", action="store_true", help="Close all open pos
 parser.add_argument("--show-trades", action="store_true", help="Show today's trades and exit")
 parser.add_argument("--emergency-stop", action="store_true", help="Emergency stop - close all positions and stop trading")
 parser.add_argument("--mode", type=str, default="adaptive", choices=["fade", "breakout", "wait", "adaptive"], 
-                    help="Strategy mode: fade=reversal bias, breakout=continuation bias, wait=wait for resolution, adaptive=dynamic resolution")
+                    help="Strategy mode: fade, breakout, wait, adaptive")
 parser.add_argument("--dashboard", action="store_true", help="Start web dashboard")
 parser.add_argument("--dashboard-port", type=int, default=5000, help="Dashboard port")
 parser.add_argument("--disable-ai", action="store_true", help="Disable AI decision layer (use rule-based)")
@@ -166,9 +165,9 @@ BINANCE_API_KEY = _read_secret_file("/run/secrets/binance_api_key") or os.getenv
 BINANCE_API_SECRET = _read_secret_file("/run/secrets/binance_api_secret") or os.getenv("BINANCE_API_SECRET", "").strip()
 
 print("=" * 70)
-print("SIGNAL CONFLICT AI AGENT - HACKATHON EDITION")
+print("ADAPTIVE AI AGENT - HACKATHON EDITION")
 print("=" * 70)
-display_mode = "ADAPTIVE CONFLICT RESOLUTION" if STRATEGY_MODE == "adaptive" else STRATEGY_MODE.upper()
+display_mode = "ADAPTIVE RESOLUTION" if STRATEGY_MODE == "adaptive" else STRATEGY_MODE.upper()
 print(f"Mode: {display_mode}")
 print(f"AI Decision Layer: {'DISABLED' if DISABLE_AI_LAYER else 'ENABLED'}")
 print(f"Agent Memory: ENABLED")
@@ -405,7 +404,7 @@ ENABLE_LRE_LOGGING = os.getenv("ENABLE_LRE_LOGGING", "true").lower() in {"1","tr
 
 # OE Controls - Strategy Ownership
 ENFORCE_OE = os.getenv("ENFORCE_OE", "true").lower() in {"1","true","yes","y"}
-STRATEGY_ID = os.getenv("STRATEGY_ID", "SIGNAL_CONFLICT_V2")
+STRATEGY_ID = os.getenv("STRATEGY_ID", "ADAPTIVE_V2")
 ENABLE_LL = os.getenv("ENABLE_LL", "true").lower() in {"1","true","yes","y"}
 LL_TRANCHES = _safe_int_env("LL_TRANCHES", 3)
 LL_SPACING_PCT = _safe_float_env("LL_SPACING_PCT", 1.0)
@@ -437,7 +436,7 @@ ENABLE_LM_LADDER = os.getenv("ENABLE_LM_LADDER", "true").lower() in {"1","true",
 LM_MIN_LIQ_DISTANCE_PCT = _safe_float_env("LM_MIN_LIQ_DISTANCE_PCT", 15.0)
 SL_DISABLE_HOURS = _safe_float_env("SL_DISABLE_HOURS", 2.0)
 ENABLE_TDM_MANDATORY = os.getenv("ENABLE_TDM_MANDATORY", "true").lower() in {"1","true","yes","y"}
-ORDER_ID_PREFIX = os.getenv("ORDER_ID_PREFIX", "SC")
+ORDER_ID_PREFIX = os.getenv("ORDER_ID_PREFIX", "AA")
 ENABLE_ORDER_TAGGING = os.getenv("ENABLE_ORDER_TAGGING", "true").lower() in {"1","true","yes","y"}
 TOKEN_COOLDOWN_HOURS = _safe_int_env("TOKEN_COOLDOWN_HOURS", 4)
 ENABLE_STRICT_COOLDOWN = os.getenv("ENABLE_STRICT_COOLDOWN", "true").lower() in {"1","true","yes","y"}
@@ -697,7 +696,7 @@ class MarketRegimeDetector:
 
 @dataclass
 class MemoryEntry:
-    conflict_type: str
+    signal_type: str
     side: str
     outcome: str
     pnl: float
@@ -706,12 +705,12 @@ class MemoryEntry:
     regime_at_entry: str
 
 class AgentMemory:
-    """Stores and learns from past conflict outcomes"""
+    """Stores and learns from past outcomes"""
     
     def __init__(self, store):
         self.store = store
         self.memory: Dict[str, List[MemoryEntry]] = defaultdict(list)
-        self.conflict_stats: Dict[str, Dict] = defaultdict(lambda: {'wins': 0, 'losses': 0, 'total_pnl': 0})
+        self.signal_stats: Dict[str, Dict] = defaultdict(lambda: {'wins': 0, 'losses': 0, 'total_pnl': 0})
         self._load_memory()
     
     def _load_memory(self):
@@ -724,7 +723,7 @@ class AgentMemory:
                 con.row_factory = sqlite3.Row
                 cur = con.cursor()
                 cur.execute("""
-                    SELECT conflict_type, side, outcome, net_pnl, timestamp, 
+                    SELECT signal_type, side, outcome, net_pnl, timestamp, 
                            conflict_score, rsi_value, regime_at_entry
                     FROM trades 
                     WHERE strategy_id = ? AND outcome IS NOT NULL
@@ -735,14 +734,14 @@ class AgentMemory:
                 
                 rows = cur.fetchall()
                 for row in rows:
-                    conflict_type = row['conflict_type'] or 'UNKNOWN'
+                    signal_type = row['signal_type'] or 'UNKNOWN'
                     side = row['side']
                     outcome = row['outcome']
                     pnl = row['net_pnl'] or 0
                     timestamp = datetime.fromisoformat(row['timestamp']) if row['timestamp'] else datetime.now()
                     
                     entry = MemoryEntry(
-                        conflict_type=conflict_type,
+                        signal_type=signal_type,
                         side=side,
                         outcome=outcome,
                         pnl=pnl,
@@ -750,63 +749,63 @@ class AgentMemory:
                         rsi_at_entry=row['rsi_value'] or 50,
                         regime_at_entry=row['regime_at_entry'] or 'NEUTRAL'
                     )
-                    self.memory[conflict_type].append(entry)
+                    self.memory[signal_type].append(entry)
                     
                     if outcome in ['TP', 'BE']:
-                        self.conflict_stats[conflict_type]['wins'] += 1
+                        self.signal_stats[signal_type]['wins'] += 1
                     else:
-                        self.conflict_stats[conflict_type]['losses'] += 1
-                    self.conflict_stats[conflict_type]['total_pnl'] += pnl
+                        self.signal_stats[signal_type]['losses'] += 1
+                    self.signal_stats[signal_type]['total_pnl'] += pnl
             
             memory_count = sum(len(v) for v in self.memory.values())
-            logger.info(f"Agent Memory loaded: {memory_count} historical conflicts")
+            logger.info(f"Agent Memory loaded: {memory_count} historical signals")
             
         except Exception as e:
             logger.warning(f"Failed to load agent memory: {e}")
     
-    def get_conflict_win_rate(self, conflict_type: str) -> float:
-        """Get historical win rate for a conflict type"""
-        stats = self.conflict_stats.get(conflict_type, {'wins': 0, 'losses': 0})
+    def get_signal_win_rate(self, signal_type: str) -> float:
+        """Get historical win rate for a signal type"""
+        stats = self.signal_stats.get(signal_type, {'wins': 0, 'losses': 0})
         total = stats['wins'] + stats['losses']
         if total == 0:
             return 0.5
         return stats['wins'] / total
     
-    def get_expected_pnl(self, conflict_type: str) -> float:
-        """Get expected PnL for a conflict type"""
-        stats = self.conflict_stats.get(conflict_type, {'wins': 0, 'losses': 0, 'total_pnl': 0})
+    def get_expected_pnl(self, signal_type: str) -> float:
+        """Get expected PnL for a signal type"""
+        stats = self.signal_stats.get(signal_type, {'wins': 0, 'losses': 0, 'total_pnl': 0})
         total = stats['wins'] + stats['losses']
         if total == 0:
             return 0.0
         return stats['total_pnl'] / total
     
-    def calculate_memory_adjustment(self, conflict_type: str, side: str) -> Tuple[float, str]:
+    def calculate_memory_adjustment(self, signal_type: str, side: str) -> Tuple[float, str]:
         """Calculate confidence adjustment based on historical memory"""
         if not ENABLE_AGENT_MEMORY:
             return 0.0, "Memory disabled"
         
-        win_rate = self.get_conflict_win_rate(conflict_type)
+        win_rate = self.get_signal_win_rate(signal_type)
         
         if win_rate > 0.65:
             boost = MEMORY_CONFIDENCE_BOOST
-            reason = f"Conflict {conflict_type} historically wins {win_rate:.0%} → +{boost:.0%}"
+            reason = f"Pattern {signal_type} historically wins {win_rate:.0%} → +{boost:.0%}"
         elif win_rate < 0.35:
             boost = -MEMORY_CONFIDENCE_PENALTY
-            reason = f"Conflict {conflict_type} historically loses {win_rate:.0%} → {boost:.0%}"
+            reason = f"Pattern {signal_type} historically loses {win_rate:.0%} → {boost:.0%}"
         else:
             boost = 0.0
-            reason = f"Conflict {conflict_type} mixed results ({win_rate:.0%})"
+            reason = f"Pattern {signal_type} mixed results ({win_rate:.0%})"
         
         return boost, reason
     
-    def record_outcome(self, conflict_type: str, side: str, outcome: str, pnl: float, 
+    def record_outcome(self, signal_type: str, side: str, outcome: str, pnl: float, 
                       rsi_at_entry: float, regime: str):
         """Record trade outcome to memory"""
         if not ENABLE_AGENT_MEMORY:
             return
         
         entry = MemoryEntry(
-            conflict_type=conflict_type,
+            signal_type=signal_type,
             side=side,
             outcome=outcome,
             pnl=pnl,
@@ -814,25 +813,25 @@ class AgentMemory:
             rsi_at_entry=rsi_at_entry,
             regime_at_entry=regime
         )
-        self.memory[conflict_type].append(entry)
+        self.memory[signal_type].append(entry)
         
         if outcome in ['TP', 'BE']:
-            self.conflict_stats[conflict_type]['wins'] += 1
+            self.signal_stats[signal_type]['wins'] += 1
         else:
-            self.conflict_stats[conflict_type]['losses'] += 1
-        self.conflict_stats[conflict_type]['total_pnl'] += pnl
+            self.signal_stats[signal_type]['losses'] += 1
+        self.signal_stats[signal_type]['total_pnl'] += pnl
         
-        if len(self.memory[conflict_type]) > 200:
-            self.memory[conflict_type] = self.memory[conflict_type][-200:]
+        if len(self.memory[signal_type]) > 200:
+            self.memory[signal_type] = self.memory[signal_type][-200:]
     
     def get_memory_summary(self) -> Dict:
         """Get summary of memory statistics for dashboard display"""
         total_patterns = sum(len(v) for v in self.memory.values())
         
         summary = {
-            'total_conflicts_learned': total_patterns,
-            'conflict_types': {},
-            'best_conflict_type': None,
+            'total_signals_learned': total_patterns,
+            'signal_types': {},
+            'best_signal_type': None,
             'best_win_rate': 0,
             'historical_win_rate': None
         }
@@ -840,12 +839,12 @@ class AgentMemory:
         total_wins = 0
         total_trades = 0
         
-        for conflict_type, stats in self.conflict_stats.items():
+        for signal_type, stats in self.signal_stats.items():
             wins = stats['wins']
             losses = stats['losses']
             total = wins + losses
             win_rate = wins / total if total > 0 else 0.5
-            summary['conflict_types'][conflict_type] = {
+            summary['signal_types'][signal_type] = {
                 'wins': wins,
                 'losses': losses,
                 'win_rate': win_rate,
@@ -856,7 +855,7 @@ class AgentMemory:
             
             if win_rate > summary['best_win_rate'] and total >= 3:
                 summary['best_win_rate'] = win_rate
-                summary['best_conflict_type'] = conflict_type
+                summary['best_signal_type'] = signal_type
         
         # Only calculate historical win rate if there are actual trades
         if total_trades > 0:
@@ -956,7 +955,7 @@ class AIDecisionReviewLayer:
                 openai.ChatCompletion.create,
                 model=OPENAI_MODEL,
                 messages=[
-                    {"role": "system", "content": "You are an AI trading judge. Your job is to review the rule-based decision and decide whether to BUY, SELL, or WAIT. Consider the conflict between signals. If signals are strongly aligned, take the trade. If conflict is high, wait. Output format: DECISION: [BUY/SELL/WAIT] CONFIDENCE: [0-100] REASON: [short explanation]"},
+                    {"role": "system", "content": "You are an AI trading judge. Your job is to review the rule-based decision and decide whether to BUY, SELL, or WAIT. Consider the signals. If signals are strongly aligned, take the trade. If conflict is high, wait. Output format: DECISION: [BUY/SELL/WAIT] CONFIDENCE: [0-100] REASON: [short explanation]"},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=150,
@@ -968,7 +967,7 @@ class AIDecisionReviewLayer:
             logger.warning(f"OpenAI API call failed: {e}")
             return None
     
-    async def review_decision(self, conflict_info: Dict, regime_info: Optional[MarketRegimeInfo],
+    async def review_decision(self, signal_info: Dict, regime_info: Optional[MarketRegimeInfo],
                              confidence_score: float, memory_boost: float = 0.0) -> Tuple[str, str, float]:
         """
         Review the rule-based decision and possibly override.
@@ -976,27 +975,27 @@ class AIDecisionReviewLayer:
         Returns: (final_decision, explanation, adjusted_confidence)
         """
         if DISABLE_AI_LAYER or not ENABLE_AI_EXPLANATION:
-            rule_decision = conflict_info.get('trade_signal', 'WAIT')
-            self._log_decision_history(conflict_info, rule_decision, rule_decision, "Rule-based (AI disabled)", "N/A", confidence_score + memory_boost * 100)
+            rule_decision = signal_info.get('trade_signal', 'WAIT')
+            self._log_decision_history(signal_info, rule_decision, rule_decision, "Rule-based (AI disabled)", "N/A", confidence_score + memory_boost * 100)
             return rule_decision, "Rule-based decision (AI disabled)", confidence_score + memory_boost * 100
         
-        rule_decision = conflict_info.get('trade_signal', 'WAIT')
-        trend_signal = conflict_info.get('trend_signal', 'NEUTRAL')
-        reversion_signal = conflict_info.get('reversion_signal', 'NEUTRAL')
-        trend_strength = conflict_info.get('trend_strength', 0)
-        reversion_strength = conflict_info.get('reversion_strength', 0)
-        conflict_score = conflict_info.get('conflict_score', 0)
-        current_rsi = conflict_info.get('current_rsi', 50)
+        rule_decision = signal_info.get('trade_signal', 'WAIT')
+        signal_a = signal_info.get('signal_a', 'NEUTRAL')
+        signal_b = signal_info.get('signal_b', 'NEUTRAL')
+        strength_a = signal_info.get('strength_a', 0)
+        strength_b = signal_info.get('strength_b', 0)
+        divergence_score = signal_info.get('divergence_score', 0)
+        current_rsi = signal_info.get('current_rsi', 50)
         
         memory_adjustment, memory_reason = "", ""
-        if self.memory and conflict_info.get('conflict_type'):
+        if self.memory and signal_info.get('signal_type'):
             mem_boost, mem_reason = self.memory.calculate_memory_adjustment(
-                conflict_info.get('conflict_type'), rule_decision
+                signal_info.get('signal_type'), rule_decision
             )
             memory_boost = max(memory_boost, mem_boost)
             memory_reason = mem_reason
         
-        prompt = self._build_review_prompt(conflict_info, regime_info, rule_decision, confidence_score, memory_reason)
+        prompt = self._build_review_prompt(signal_info, regime_info, rule_decision, confidence_score, memory_reason)
         
         llm_response = await self._call_gemini(prompt)
         llm_used = "Gemini"
@@ -1030,15 +1029,15 @@ class AIDecisionReviewLayer:
             if final_decision != rule_decision:
                 logger.info(f"AI OVERRIDE: {rule_decision} → {final_decision}. {explanation}")
             
-            self._log_decision_history(conflict_info, rule_decision, final_decision, explanation, llm_used, adjusted_conf)
+            self._log_decision_history(signal_info, rule_decision, final_decision, explanation, llm_used, adjusted_conf)
             
             return final_decision, explanation, min(100, adjusted_conf)
         
         adjusted_confidence = min(100, confidence_score + memory_boost * 100)
-        self._log_decision_history(conflict_info, rule_decision, rule_decision, f"Rule-based decision (LLM unavailable, memory: {memory_reason})", "None", adjusted_confidence)
+        self._log_decision_history(signal_info, rule_decision, rule_decision, f"Rule-based decision (LLM unavailable, memory: {memory_reason})", "None", adjusted_confidence)
         return rule_decision, f"Rule-based decision (LLM unavailable, memory: {memory_reason})", adjusted_confidence
     
-    def _log_decision_history(self, conflict_info: Dict, rule_decision: str, ai_decision: str, explanation: str, llm_used: str, confidence: float):
+    def _log_decision_history(self, signal_info: Dict, rule_decision: str, ai_decision: str, explanation: str, llm_used: str, confidence: float):
         """Log decision to history for dashboard display (even when no trade occurs)"""
         if not ENABLE_DECISION_HISTORY_LOGGING:
             return
@@ -1047,8 +1046,8 @@ class AIDecisionReviewLayer:
         
         # Generate a simulated signal strength for demo visualization
         signal_strength = 50 + (self._log_count % 50)
-        trend_signal_val = conflict_info.get('trend_signal', 'NEUTRAL')
-        reversion_signal_val = conflict_info.get('reversion_signal', 'NEUTRAL')
+        signal_a_val = signal_info.get('signal_a', 'NEUTRAL')
+        signal_b_val = signal_info.get('signal_b', 'NEUTRAL')
         
         # Determine signal type based on decision
         if ai_decision == 'BUY':
@@ -1061,10 +1060,10 @@ class AIDecisionReviewLayer:
             signal_type = "NEUTRAL"
             signal_strength = 45 + (self._log_count % 20)
         
-        conflict_type = conflict_info.get('conflict_type', 'UNKNOWN')
-        conflict_score = conflict_info.get('conflict_score', 0)
-        current_rsi = conflict_info.get('current_rsi', 50)
-        symbol = conflict_info.get('symbol', 'UNKNOWN')
+        signal_type_str = signal_info.get('signal_type', 'UNKNOWN')
+        divergence_score = signal_info.get('divergence_score', 0)
+        current_rsi = signal_info.get('current_rsi', 50)
+        symbol = signal_info.get('symbol', 'UNKNOWN')
         
         # Ensure we have a meaningful symbol
         if symbol == 'UNKNOWN' and self._log_count > 0:
@@ -1079,13 +1078,13 @@ class AIDecisionReviewLayer:
             'explanation': explanation[:200] if explanation else f"Analyzed {symbol}. Decision: {ai_decision}.",
             'llm_used': llm_used,
             'confidence': confidence,
-            'conflict_type': conflict_type,
-            'conflict_score': conflict_score,
+            'signal_type': signal_type_str,
+            'divergence_score': divergence_score,
             'current_rsi': current_rsi,
-            'trend_signal': trend_signal_val,
-            'reversion_signal': reversion_signal_val,
+            'signal_a': signal_a_val,
+            'signal_b': signal_b_val,
             'trade_executed': False,
-            'signal_type': signal_type,
+            'signal_type_display': signal_type,
             'signal_strength': signal_strength
         })
         
@@ -1119,16 +1118,16 @@ class AIDecisionReviewLayer:
         now = datetime.now()
         
         sample_data = [
-            {"symbol": "BTCUSDT", "trend": "LONG", "reversion": "SHORT", "rsi": 72, "conflict_score": 0.65, "decision": "WAIT", "confidence": 68, "explanation": "Signal conflict detected - waiting for resolution."},
-            {"symbol": "ETHUSDT", "trend": "SHORT", "reversion": "SHORT", "rsi": 25, "conflict_score": 0.15, "decision": "BUY", "confidence": 82, "explanation": "Signals aligned - favorable entry opportunity."},
-            {"symbol": "BNBUSDT", "trend": "LONG", "reversion": "NEUTRAL", "rsi": 58, "conflict_score": 0.25, "decision": "BUY", "confidence": 74, "explanation": "Trend signal present - entry opportunity detected."},
-            {"symbol": "SOLUSDT", "trend": "NEUTRAL", "reversion": "LONG", "rsi": 18, "conflict_score": 0.35, "decision": "BUY", "confidence": 79, "explanation": "Mean reversion signal detected - favorable entry."},
-            {"symbol": "XRPUSDT", "trend": "SHORT", "reversion": "LONG", "rsi": 68, "conflict_score": 0.58, "decision": "WAIT", "confidence": 55, "explanation": "Signal conflict detected - waiting for resolution."},
-            {"symbol": "ADAUSDT", "trend": "LONG", "reversion": "NEUTRAL", "rsi": 45, "conflict_score": 0.20, "decision": "BUY", "confidence": 71, "explanation": "Trend signal present - entry opportunity detected."},
-            {"symbol": "DOGEUSDT", "trend": "NEUTRAL", "reversion": "SHORT", "rsi": 85, "conflict_score": 0.42, "decision": "SELL", "confidence": 69, "explanation": "Mean reversion signal detected - short opportunity."},
-            {"symbol": "LINKUSDT", "trend": "SHORT", "reversion": "SHORT", "rsi": 22, "conflict_score": 0.10, "decision": "BUY", "confidence": 85, "explanation": "Signals aligned - favorable entry opportunity."},
-            {"symbol": "AVAXUSDT", "trend": "LONG", "reversion": "NEUTRAL", "rsi": 52, "conflict_score": 0.18, "decision": "BUY", "confidence": 76, "explanation": "Trend signal present - entry opportunity detected."},
-            {"symbol": "MATICUSDT", "trend": "NEUTRAL", "reversion": "LONG", "rsi": 28, "conflict_score": 0.22, "decision": "BUY", "confidence": 78, "explanation": "Mean reversion signal detected - favorable entry."},
+            {"symbol": "BTCUSDT", "signal_a": "LONG", "signal_b": "SHORT", "rsi": 72, "divergence_score": 0.65, "decision": "WAIT", "confidence": 68, "explanation": "Signal divergence detected - waiting for resolution."},
+            {"symbol": "ETHUSDT", "signal_a": "SHORT", "signal_b": "SHORT", "rsi": 25, "divergence_score": 0.15, "decision": "BUY", "confidence": 82, "explanation": "Signals aligned - favorable entry opportunity."},
+            {"symbol": "BNBUSDT", "signal_a": "LONG", "signal_b": "NEUTRAL", "rsi": 58, "divergence_score": 0.25, "decision": "BUY", "confidence": 74, "explanation": "Primary signal present - entry opportunity detected."},
+            {"symbol": "SOLUSDT", "signal_a": "NEUTRAL", "signal_b": "LONG", "rsi": 18, "divergence_score": 0.35, "decision": "BUY", "confidence": 79, "explanation": "Secondary signal detected - favorable entry."},
+            {"symbol": "XRPUSDT", "signal_a": "SHORT", "signal_b": "LONG", "rsi": 68, "divergence_score": 0.58, "decision": "WAIT", "confidence": 55, "explanation": "Signal divergence detected - waiting for resolution."},
+            {"symbol": "ADAUSDT", "signal_a": "LONG", "signal_b": "NEUTRAL", "rsi": 45, "divergence_score": 0.20, "decision": "BUY", "confidence": 71, "explanation": "Primary signal present - entry opportunity detected."},
+            {"symbol": "DOGEUSDT", "signal_a": "NEUTRAL", "signal_b": "SHORT", "rsi": 85, "divergence_score": 0.42, "decision": "SELL", "confidence": 69, "explanation": "Secondary signal detected - short opportunity."},
+            {"symbol": "LINKUSDT", "signal_a": "SHORT", "signal_b": "SHORT", "rsi": 22, "divergence_score": 0.10, "decision": "BUY", "confidence": 85, "explanation": "Signals aligned - favorable entry opportunity."},
+            {"symbol": "AVAXUSDT", "signal_a": "LONG", "signal_b": "NEUTRAL", "rsi": 52, "divergence_score": 0.18, "decision": "BUY", "confidence": 76, "explanation": "Primary signal present - entry opportunity detected."},
+            {"symbol": "MATICUSDT", "signal_a": "NEUTRAL", "signal_b": "LONG", "rsi": 28, "divergence_score": 0.22, "decision": "BUY", "confidence": 78, "explanation": "Secondary signal detected - favorable entry."},
         ]
         
         for i, data in enumerate(sample_data):
@@ -1141,29 +1140,29 @@ class AIDecisionReviewLayer:
                 'explanation': data['explanation'],
                 'llm_used': 'Gemini',
                 'confidence': data['confidence'],
-                'conflict_type': "ALIGNED" if data['trend'] == data['reversion'] else "OPPOSITE",
-                'conflict_score': data['conflict_score'],
+                'signal_type': "ALIGNED" if data['signal_a'] == data['signal_b'] else "DIVERGENT",
+                'divergence_score': data['divergence_score'],
                 'current_rsi': data['rsi'],
-                'trend_signal': data['trend'],
-                'reversion_signal': data['reversion'],
+                'signal_a': data['signal_a'],
+                'signal_b': data['signal_b'],
                 'trade_executed': i < 3,
-                'signal_type': 'BULLISH' if data['decision'] == 'BUY' else ('BEARISH' if data['decision'] == 'SELL' else 'NEUTRAL'),
+                'signal_type_display': 'BULLISH' if data['decision'] == 'BUY' else ('BEARISH' if data['decision'] == 'SELL' else 'NEUTRAL'),
                 'signal_strength': data['confidence']
             })
         
         return sample_decisions
     
-    def _build_review_prompt(self, conflict_info: Dict, regime_info: Optional[MarketRegimeInfo],
+    def _build_review_prompt(self, signal_info: Dict, regime_info: Optional[MarketRegimeInfo],
                             rule_decision: str, confidence_score: float, memory_reason: str) -> str:
         """Build prompt for AI decision review (safe - no exact thresholds or formulas)"""
         prompt = f"""
 Review this trading signal:
 
-Trend Signal: {conflict_info.get('trend_signal', 'NEUTRAL')}
-Mean Reversion Signal: {conflict_info.get('reversion_signal', 'NEUTRAL')}
-Conflict Type: {conflict_info.get('conflict_type', 'UNKNOWN')}
-Current RSI: {conflict_info.get('current_rsi', 50):.1f}
-Strategy Mode: Adaptive Conflict Resolution
+Signal A: {signal_info.get('signal_a', 'NEUTRAL')}
+Signal B: {signal_info.get('signal_b', 'NEUTRAL')}
+Signal Type: {signal_info.get('signal_type', 'UNKNOWN')}
+Current RSI: {signal_info.get('current_rsi', 50):.1f}
+Strategy Mode: Adaptive Resolution
 
 Rule-based Decision: {rule_decision}
 Confidence Score: {confidence_score:.1f}%
@@ -1183,7 +1182,7 @@ Memory Adjustment: {memory_reason}
 """
         prompt += """
 Based on this information, decide whether to BUY, SELL, or WAIT.
-Consider if the conflict is likely to resolve in favor of the trade signal.
+Consider if the divergence is likely to resolve in favor of the trade signal.
 Output format:
 DECISION: [BUY/SELL/WAIT]
 CONFIDENCE: [0-100]
@@ -1261,16 +1260,16 @@ class AIExplanationLayer:
         except Exception:
             return None
     
-    def generate_rule_based_explanation(self, conflict_info: Dict) -> str:
+    def generate_rule_based_explanation(self, signal_info: Dict) -> str:
         """Generate explanation without revealing exact strategy thresholds"""
-        decision = conflict_info.get('trade_signal', 'WAIT')
-        conflict_type = conflict_info.get('conflict_type', 'UNKNOWN')
-        current_rsi = conflict_info.get('current_rsi', 50)
+        decision = signal_info.get('trade_signal', 'WAIT')
+        signal_type = signal_info.get('signal_type', 'UNKNOWN')
+        current_rsi = signal_info.get('current_rsi', 50)
         
         explanation_parts = []
         
-        if conflict_type == "OPPOSITE":
-            explanation_parts.append("Signals are in conflict.")
+        if signal_type == "DIVERGENT":
+            explanation_parts.append("Signals are diverging.")
         else:
             explanation_parts.append("Signals are aligned.")
         
@@ -1288,11 +1287,11 @@ class AIExplanationLayer:
         
         return " ".join(explanation_parts)
     
-    async def generate_ai_explanation(self, conflict_info: Dict, regime_info: Optional[MarketRegimeInfo] = None) -> str:
+    async def generate_ai_explanation(self, signal_info: Dict, regime_info: Optional[MarketRegimeInfo] = None) -> str:
         if not ENABLE_AI_EXPLANATION:
-            return self.generate_rule_based_explanation(conflict_info)
+            return self.generate_rule_based_explanation(signal_info)
         
-        prompt = self._build_llm_prompt(conflict_info, regime_info)
+        prompt = self._build_llm_prompt(signal_info, regime_info)
         
         explanation = await self._call_gemini(prompt)
         if not explanation:
@@ -1305,17 +1304,17 @@ class AIExplanationLayer:
             })
             return explanation
         
-        return self.generate_rule_based_explanation(conflict_info)
+        return self.generate_rule_based_explanation(signal_info)
     
-    def _build_llm_prompt(self, conflict_info: Dict, regime_info: Optional[MarketRegimeInfo]) -> str:
+    def _build_llm_prompt(self, signal_info: Dict, regime_info: Optional[MarketRegimeInfo]) -> str:
         prompt = f"""
 Analyze this trading signal:
 
-- Trend Signal: {conflict_info.get('trend_signal', 'NEUTRAL')}
-- Mean Reversion Signal: {conflict_info.get('reversion_signal', 'NEUTRAL')}
-- Current RSI: {conflict_info.get('current_rsi', 50):.1f}
-- Strategy Mode: Adaptive Conflict Resolution
-- Final Decision: {conflict_info.get('trade_signal', 'WAIT')}
+- Signal A: {signal_info.get('signal_a', 'NEUTRAL')}
+- Signal B: {signal_info.get('signal_b', 'NEUTRAL')}
+- Current RSI: {signal_info.get('current_rsi', 50):.1f}
+- Strategy Mode: Adaptive Resolution
+- Final Decision: {signal_info.get('trade_signal', 'WAIT')}
 """
         if regime_info:
             prompt += f"""
@@ -1335,8 +1334,8 @@ Provide a 2-3 sentence explanation of why this signal was generated.
 @dataclass
 class ConfidenceScore:
     total: float
-    trend_score: float
-    reversion_score: float
+    signal_a_score: float
+    signal_b_score: float
     volume_score: float
     regime_score: float
     reasoning: str
@@ -1345,45 +1344,45 @@ class ConfidenceEngine:
     def __init__(self, detector: MarketRegimeDetector):
         self.detector = detector
     
-    async def calculate_confidence(self, conflict_info: Dict, volume_confirmation: float, regime_info: MarketRegimeInfo) -> ConfidenceScore:
-        trend_strength = conflict_info.get('trend_strength', 0)
-        reversion_strength = conflict_info.get('reversion_strength', 0)
+    async def calculate_confidence(self, signal_info: Dict, volume_confirmation: float, regime_info: MarketRegimeInfo) -> ConfidenceScore:
+        strength_a = signal_info.get('strength_a', 0)
+        strength_b = signal_info.get('strength_b', 0)
         
-        conflict_score = conflict_info.get('conflict_score', 0)
+        divergence_score = signal_info.get('divergence_score', 0)
         
         if STRATEGY_MODE == "adaptive":
-            if conflict_score < 0.3:
-                trend_score = min(1, trend_strength)
-                reversion_score = min(1, reversion_strength)
+            if divergence_score < 0.3:
+                signal_a_score = min(1, strength_a)
+                signal_b_score = min(1, strength_b)
             else:
-                trend_score = max(0, 1 - conflict_score) * min(1, trend_strength)
-                reversion_score = max(0, 1 - conflict_score) * min(1, reversion_strength)
+                signal_a_score = max(0, 1 - divergence_score) * min(1, strength_a)
+                signal_b_score = max(0, 1 - divergence_score) * min(1, strength_b)
         elif STRATEGY_MODE == "fade":
-            trend_score = max(0, 1 - trend_strength)
-            reversion_score = min(1, reversion_strength)
+            signal_a_score = max(0, 1 - strength_a)
+            signal_b_score = min(1, strength_b)
         else:
-            trend_score = min(1, trend_strength)
-            reversion_score = max(0, 1 - reversion_strength)
+            signal_a_score = min(1, strength_a)
+            signal_b_score = max(0, 1 - strength_b)
         
         volume_score = min(1, volume_confirmation / 0.5) if volume_confirmation else 0.5
         
-        regime_score = self._calculate_regime_score(conflict_info.get('trade_signal'), regime_info)
+        regime_score = self._calculate_regime_score(signal_info.get('trade_signal'), regime_info)
         
         total = (
-            trend_score * _CONFIDENCE_TREND_WEIGHT +
-            reversion_score * _CONFIDENCE_REVERSION_WEIGHT +
+            signal_a_score * _CONFIDENCE_TREND_WEIGHT +
+            signal_b_score * _CONFIDENCE_REVERSION_WEIGHT +
             volume_score * _CONFIDENCE_VOLUME_WEIGHT +
             regime_score * _CONFIDENCE_REGIME_WEIGHT
         )
         
         total = max(0, min(1, total))
         
-        reasoning = self._build_reasoning(trend_score, reversion_score, volume_score, regime_score, total)
+        reasoning = self._build_reasoning(signal_a_score, signal_b_score, volume_score, regime_score, total)
         
         return ConfidenceScore(
             total=total * 100,
-            trend_score=trend_score * 100,
-            reversion_score=reversion_score * 100,
+            signal_a_score=signal_a_score * 100,
+            signal_b_score=signal_b_score * 100,
             volume_score=volume_score * 100,
             regime_score=regime_score * 100,
             reasoning=reasoning
@@ -1433,17 +1432,17 @@ class ConfidenceEngine:
             else:
                 return 0.8
     
-    def _build_reasoning(self, trend_score: float, reversion_score: float, 
+    def _build_reasoning(self, signal_a_score: float, signal_b_score: float, 
                         volume_score: float, regime_score: float, total: float) -> str:
         parts = []
         
-        if trend_score >= 70:
-            parts.append("Strong trend alignment")
-        elif trend_score <= 30:
-            parts.append("Weak trend alignment")
+        if signal_a_score >= 70:
+            parts.append("Strong signal A")
+        elif signal_a_score <= 30:
+            parts.append("Weak signal A")
         
-        if reversion_score >= 70:
-            parts.append("Strong reversion signal")
+        if signal_b_score >= 70:
+            parts.append("Strong signal B")
         
         if volume_score >= 70:
             parts.append("Good volume confirmation")
@@ -1478,7 +1477,7 @@ class DashboardServer:
         self.server_thread = None
         self.is_running = False
         self._signal_counter = 0
-        self._conflict_counter = 0
+        self._divergence_counter = 0
         
     def start(self, port=5000):
         if not FLASK_AVAILABLE:
@@ -1579,7 +1578,7 @@ class DashboardServer:
             top_signals = [
                 {'symbol': 'ETHUSDT', 'decision': 'BUY', 'confidence': 82, 'explanation': 'Signals aligned - favorable entry.'},
                 {'symbol': 'LINKUSDT', 'decision': 'BUY', 'confidence': 85, 'explanation': 'Signals aligned - favorable entry.'},
-                {'symbol': 'DOGEUSDT', 'decision': 'SELL', 'confidence': 69, 'explanation': 'Mean reversion signal detected.'}
+                {'symbol': 'DOGEUSDT', 'decision': 'SELL', 'confidence': 69, 'explanation': 'Secondary signal detected.'}
             ]
         
         return {'top_signals': top_signals}
@@ -1588,15 +1587,15 @@ class DashboardServer:
         """Get agent memory statistics for dashboard display with fix for 0-patterns contradiction"""
         memory_data = {
             'historical_patterns_learned': 0,
-            'best_conflict_type': 'N/A',
-            'best_conflict_display': 'N/A',
+            'best_signal_type': 'N/A',
+            'best_signal_display': 'N/A',
             'historical_win_rate': None,
-            'conflict_types': {}
+            'signal_types': {}
         }
         
         if self.engine and hasattr(self.engine, 'agent_memory'):
             summary = self.engine.agent_memory.get_memory_summary()
-            patterns_learned = summary.get('total_conflicts_learned', 0)
+            patterns_learned = summary.get('total_signals_learned', 0)
             memory_data['historical_patterns_learned'] = patterns_learned
             win_rate = summary.get('historical_win_rate')
             # Show None/N/A when no patterns learned
@@ -1604,21 +1603,21 @@ class DashboardServer:
                 memory_data['historical_win_rate'] = win_rate * 100
             else:
                 memory_data['historical_win_rate'] = None
-            memory_data['conflict_types'] = summary.get('conflict_types', {})
+            memory_data['signal_types'] = summary.get('signal_types', {})
             
-            # Only show best conflict type if there are actual learned patterns
+            # Only show best signal type if there are actual learned patterns
             if patterns_learned > 0:
-                best_type = summary.get('best_conflict_type')
+                best_type = summary.get('best_signal_type')
                 if best_type:
                     best_win_rate = summary.get('best_win_rate', 0) * 100
-                    memory_data['best_conflict_type'] = best_type
-                    memory_data['best_conflict_display'] = f"{best_type} ({best_win_rate:.0f}%)"
+                    memory_data['best_signal_type'] = best_type
+                    memory_data['best_signal_display'] = f"{best_type} ({best_win_rate:.0f}%)"
                 else:
-                    memory_data['best_conflict_type'] = 'N/A'
-                    memory_data['best_conflict_display'] = 'N/A'
+                    memory_data['best_signal_type'] = 'N/A'
+                    memory_data['best_signal_display'] = 'N/A'
             else:
-                memory_data['best_conflict_type'] = 'N/A'
-                memory_data['best_conflict_display'] = 'N/A'
+                memory_data['best_signal_type'] = 'N/A'
+                memory_data['best_signal_display'] = 'N/A'
         
         return memory_data
     
@@ -1627,7 +1626,7 @@ class DashboardServer:
         <!DOCTYPE html>
         <html>
         <head>
-            <title>Multi-Signal AI Agent</title>
+            <title>Adaptive AI Agent</title>
             <style>
                 * { margin: 0; padding: 0; box-sizing: border-box; }
                 html { scroll-behavior: smooth; }
@@ -1720,9 +1719,9 @@ class DashboardServer:
                     color: #888;
                     margin-top: 5px;
                 }
-                .conflict-high { background: rgba(255,68,68,0.2); }
-                .conflict-mid { background: rgba(255,170,0,0.2); }
-                .conflict-low { background: rgba(0,255,136,0.2); }
+                .divergence-high { background: rgba(255,68,68,0.2); }
+                .divergence-mid { background: rgba(255,170,0,0.2); }
+                .divergence-low { background: rgba(0,255,136,0.2); }
                 .decision-row:hover { background: rgba(0,212,255,0.1); }
                 .signal-strength-bar {
                     background: rgba(255,255,255,0.2);
@@ -1823,7 +1822,7 @@ class DashboardServer:
         </head>
         <body>
             <div class="container">
-                <h1>🤖 Multi-Signal AI Agent <span class="demo-mode-badge" id="demo-badge" style="display:none;">DEMO MODE</span></h1>
+                <h1>🤖 Adaptive AI Agent <span class="demo-mode-badge" id="demo-badge" style="display:none;">DEMO MODE</span></h1>
                 <div class="header-features">
                     <a href="#ai-review-section" class="feature-link">🤖 AI Review Layer</a>
                     <a href="#memory-section" class="feature-link">🧠 Agent Memory</a>
@@ -1835,13 +1834,13 @@ class DashboardServer:
                         <div id="memory-patterns" class="metric">Loading...</div>
                         <div class="metric-label">Historical Patterns Learned</div>
                         <div id="memory-best-type" class="metric" style="font-size: 1.2em;">--</div>
-                        <div class="metric-label">Best Performing Conflict Type</div>
+                        <div class="metric-label">Best Performing Signal Type</div>
                         <div id="memory-winrate" style="margin-top: 10px;">Historical Win Rate: <strong id="memory-winrate-value">--</strong></div>
                     </div>
                     <div class="card stats-card">
                         <h3>📈 AI Performance Stats</h3>
                         <div>Signals Analyzed: <strong id="signals-analyzed">0</strong></div>
-                        <div>Conflicts Detected: <strong id="conflicts-detected">0</strong></div>
+                        <div>Divergences Detected: <strong id="divergences-detected">0</strong></div>
                         <div>AI Reviews: <strong id="ai-reviews">0</strong></div>
                         <div>Memory Adjustments: <strong id="memory-adjustments">0</strong></div>
                         <div>AI Trade Recommendations: <strong id="trades-executed">0</strong></div>
@@ -1866,11 +1865,11 @@ class DashboardServer:
                         <div id="ai-decisions" style="overflow-x: auto;">Loading...</div>
                     </div>
                 </div>
-                <div class="footer">Multi-Signal AI Agent | Hackathon Submission | AI Review Layer + Agent Memory + Market Regime Detection | Adaptive Conflict Resolution</div>
+                <div class="footer">Adaptive AI Agent | Hackathon Submission | AI Review Layer + Agent Memory + Market Regime Detection | Adaptive Resolution</div>
             </div>
             <script>
                 let signalCount = 0;
-                let conflictCount = 0;
+                let divergenceCount = 0;
                 let aiReviewCount = 0;
                 let memoryAdjustCount = 0;
                 let tradeExecCount = 0;
@@ -1884,12 +1883,12 @@ class DashboardServer:
                 function refresh() {
                     fetch('/api/status').then(r=>r.json()).then(d=>{
                         if(d.signals_analyzed) signalCount = d.signals_analyzed;
-                        if(d.conflicts_detected) conflictCount = d.conflicts_detected;
+                        if(d.divergences_detected) divergenceCount = d.divergences_detected;
                         if(d.ai_reviews) aiReviewCount = d.ai_reviews;
                         if(d.memory_adjustments) memoryAdjustCount = d.memory_adjustments;
                         if(d.trades_executed) tradeExecCount = d.trades_executed;
                         document.getElementById('signals-analyzed').innerText = signalCount;
-                        document.getElementById('conflicts-detected').innerText = conflictCount;
+                        document.getElementById('divergences-detected').innerText = divergenceCount;
                         document.getElementById('ai-reviews').innerText = aiReviewCount;
                         document.getElementById('memory-adjustments').innerText = memoryAdjustCount;
                         document.getElementById('trades-executed').innerText = tradeExecCount;
@@ -1905,7 +1904,7 @@ class DashboardServer:
                         document.getElementById('memory-patterns').innerHTML = patterns;
                         if (patterns > 0) {
                             document.getElementById('memory-patterns').style.color = '#00ff88';
-                            document.getElementById('memory-best-type').innerHTML = d.best_conflict_display || '--';
+                            document.getElementById('memory-best-type').innerHTML = d.best_signal_display || '--';
                             document.getElementById('memory-best-type').style.color = '#00ff88';
                             document.getElementById('memory-best-type').style.fontStyle = 'normal';
                         } else {
@@ -1965,14 +1964,14 @@ class DashboardServer:
                     fetch('/api/ai/decisions').then(r=>r.json()).then(d=>{
                         if(d.decisions&&d.decisions.length){
                             let h='<table class="decision-table"><thead>' +
-                                '<th>Time</th><th>Symbol</th><th>Signal</th><th>Strength</th><th>Conflict</th><th>RSI</th>' +
+                                '<th>Time</th><th>Symbol</th><th>Signal</th><th>Strength</th><th>Divergence</th><th>RSI</th>' +
                                 '<th>AI Decision</th><th>Confidence</th><th>Explanation</th></td></thead><tbody>';
                             d.decisions.slice(0,20).forEach(dec=>{
-                                let conflictClass = '';
-                                if(dec.conflict_score >= 0.7) conflictClass = 'conflict-high';
-                                else if(dec.conflict_score >= 0.4) conflictClass = 'conflict-mid';
-                                else conflictClass = 'conflict-low';
-                                let signalColor = dec.signal_type === 'BULLISH' ? 'signal-buy' : (dec.signal_type === 'BEARISH' ? 'signal-sell' : 'signal-wait');
+                                let divergenceClass = '';
+                                if(dec.divergence_score >= 0.7) divergenceClass = 'divergence-high';
+                                else if(dec.divergence_score >= 0.4) divergenceClass = 'divergence-mid';
+                                else divergenceClass = 'divergence-low';
+                                let signalColor = dec.signal_type_display === 'BULLISH' ? 'signal-buy' : (dec.signal_type_display === 'BEARISH' ? 'signal-sell' : 'signal-wait');
                                 let strengthWidth = (dec.signal_strength || 50) + '%';
                                 let outcomeBadge = '';
                                 if (dec.trade_executed) {
@@ -1983,9 +1982,9 @@ class DashboardServer:
                                 h+=`<tr>
                                     <td>${formatTime(dec.timestamp)}</td>
                                     <td><strong>${dec.symbol||'--'}</strong></td>
-                                    <td class="${signalColor}">${dec.signal_type||'NEUTRAL'}</td>
+                                    <td class="${signalColor}">${dec.signal_type_display||'NEUTRAL'}</td>
                                     <td><div class="signal-strength-bar"><div class="signal-strength-fill" style="width:${strengthWidth}"></div></div></td>
-                                    <td class="${conflictClass}">${dec.conflict_type||'--'}</td>
+                                    <td class="${divergenceClass}">${dec.signal_type||'--'}</td>
                                     <td>${dec.current_rsi?.toFixed(1)||'--'}</td>
                                     <td class="${dec.ai_decision==='WAIT'?'signal-wait':(dec.ai_decision==='BUY'?'signal-buy':'signal-sell')}"><strong>${dec.ai_decision}</strong> ${outcomeBadge}</td>
                                     <td>${dec.confidence?.toFixed(0)||'--'}%</td>
@@ -1996,12 +1995,12 @@ class DashboardServer:
                             document.getElementById('ai-decisions').innerHTML=h;
                             if(d.summary){
                                 if(d.summary.signals_analyzed) signalCount = d.summary.signals_analyzed;
-                                if(d.summary.conflicts_detected) conflictCount = d.summary.conflicts_detected;
+                                if(d.summary.divergences_detected) divergenceCount = d.summary.divergences_detected;
                                 if(d.summary.ai_reviews) aiReviewCount = d.summary.ai_reviews;
                                 if(d.summary.memory_adjustments) memoryAdjustCount = d.summary.memory_adjustments;
                                 if(d.summary.trades_executed) tradeExecCount = d.summary.trades_executed;
                                 document.getElementById('signals-analyzed').innerText = signalCount;
-                                document.getElementById('conflicts-detected').innerText = conflictCount;
+                                document.getElementById('divergences-detected').innerText = divergenceCount;
                                 document.getElementById('ai-reviews').innerText = aiReviewCount;
                                 document.getElementById('memory-adjustments').innerText = memoryAdjustCount;
                                 document.getElementById('trades-executed').innerText = tradeExecCount;
@@ -2022,7 +2021,7 @@ class DashboardServer:
         win_count = 0
         total_trades = 0
         signals_analyzed = 0
-        conflicts_detected = 0
+        divergences_detected = 0
         ai_reviews = 0
         memory_adjustments = 0
         trades_executed = 0
@@ -2049,7 +2048,7 @@ class DashboardServer:
             decisions = self.engine.ai_decision_review.get_recent_decisions(100)
             ai_reviews = len(decisions)
             signals_analyzed = ai_reviews
-            conflicts_detected = sum(1 for d in decisions if d.get('conflict_type') == 'OPPOSITE')
+            divergences_detected = sum(1 for d in decisions if d.get('signal_type') == 'DIVERGENT')
             memory_adjustments = sum(1 for d in decisions if 'memory' in d.get('explanation', '').lower())
         
         win_rate = (win_count / total_trades * 100) if total_trades > 0 else 0
@@ -2058,7 +2057,7 @@ class DashboardServer:
             'total_pnl': total_pnl,
             'win_rate': win_rate,
             'signals_analyzed': signals_analyzed,
-            'conflicts_detected': conflicts_detected,
+            'divergences_detected': divergences_detected,
             'ai_reviews': ai_reviews,
             'memory_adjustments': memory_adjustments,
             'trades_executed': trades_executed,
@@ -2089,13 +2088,13 @@ class DashboardServer:
     
     def _get_ai_decisions_data(self) -> Dict:
         decisions = []
-        summary = {'signals_analyzed': 0, 'conflicts_detected': 0, 'ai_reviews': 0, 'memory_adjustments': 0, 'trades_executed': 0}
+        summary = {'signals_analyzed': 0, 'divergences_detected': 0, 'ai_reviews': 0, 'memory_adjustments': 0, 'trades_executed': 0}
         
         if hasattr(self.engine, 'ai_decision_review') and self.engine.ai_decision_review:
             decisions = self.engine.ai_decision_review.get_recent_decisions(50)
             summary['ai_reviews'] = len(decisions)
             summary['signals_analyzed'] = len(decisions)
-            summary['conflicts_detected'] = sum(1 for d in decisions if d.get('conflict_type') == 'OPPOSITE')
+            summary['divergences_detected'] = sum(1 for d in decisions if d.get('signal_type') == 'DIVERGENT')
             summary['trades_executed'] = sum(1 for d in decisions if d.get('trade_executed', False))
         
         return {'decisions': decisions, 'summary': summary}
@@ -2105,7 +2104,7 @@ class DashboardServer:
 # ================================================================
 
 class ConflictStore:
-    """Database management for conflict trading"""
+    """Database management for trading"""
     
     def __init__(self, db_path: Path):
         self.path = str(db_path)
@@ -2133,15 +2132,15 @@ class ConflictStore:
                     net_pnl REAL,
                     outcome TEXT,
                     exit_reason TEXT,
-                    trend_signal TEXT,
-                    trend_strength REAL,
-                    reversion_signal TEXT,
-                    reversion_strength REAL,
-                    conflict_score REAL,
+                    signal_a TEXT,
+                    strength_a REAL,
+                    signal_b TEXT,
+                    strength_b REAL,
+                    divergence_score REAL,
                     volume_confirmation REAL,
                     strategy_id TEXT,
                     rsi_value REAL,
-                    conflict_type TEXT,
+                    signal_type TEXT,
                     regime_at_entry TEXT,
                     position_side TEXT,
                     exit_time TEXT
@@ -2159,9 +2158,9 @@ class ConflictStore:
                     tp_price REAL NOT NULL,
                     entry_time TEXT NOT NULL,
                     trade_id INTEGER,
-                    trend_signal TEXT,
-                    reversion_signal TEXT,
-                    conflict_type TEXT,
+                    signal_a TEXT,
+                    signal_b TEXT,
+                    signal_type TEXT,
                     original_sl_price REAL,
                     strategy_id TEXT,
                     pending_entry INTEGER DEFAULT 0,
@@ -2207,9 +2206,9 @@ class ConflictStore:
     def insert_trade(self, timestamp: str, symbol: str, side: str, mode: str,
                     entry_price: float, sl_price: float, tp_price: float,
                     quantity: float, leverage: int, notional: float,
-                    trend_signal: str = None, trend_strength: float = None,
-                    reversion_signal: str = None, reversion_strength: float = None,
-                    conflict_score: float = None, volume_confirmation: float = None,
+                    signal_a: str = None, strength_a: float = None,
+                    signal_b: str = None, strength_b: float = None,
+                    divergence_score: float = None, volume_confirmation: float = None,
                     strategy_id: str = None, position_side: str = None) -> int:
         
         with sqlite3.connect(self.path) as con:
@@ -2217,13 +2216,13 @@ class ConflictStore:
             cur.execute("""
                 INSERT INTO trades (
                     timestamp, symbol, side, mode, entry_price, sl_price, tp_price,
-                    quantity, leverage, notional, trend_signal, trend_strength,
-                    reversion_signal, reversion_strength, conflict_score,
+                    quantity, leverage, notional, signal_a, strength_a,
+                    signal_b, strength_b, divergence_score,
                     volume_confirmation, strategy_id, position_side
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (timestamp, symbol, side, mode, entry_price, sl_price, tp_price,
-                  quantity, leverage, notional, trend_signal, trend_strength,
-                  reversion_signal, reversion_strength, conflict_score,
+                  quantity, leverage, notional, signal_a, strength_a,
+                  signal_b, strength_b, divergence_score,
                   volume_confirmation, strategy_id, position_side))
             return cur.lastrowid
     
@@ -2271,8 +2270,8 @@ class ConflictStore:
     
     def save_active_position(self, symbol: str, side: str, entry_price: float, quantity: float,
                             sl_price: float, tp_price: float, trade_id: int,
-                            trend_signal: str = None, reversion_signal: str = None,
-                            conflict_type: str = None, original_sl_price: float = None,
+                            signal_a: str = None, signal_b: str = None,
+                            signal_type: str = None, original_sl_price: float = None,
                             strategy_id: str = None, pending_entry: bool = False,
                             client_order_id: str = None, order_id: int = None,
                             order_status: str = None, position_side: str = None,
@@ -2283,13 +2282,13 @@ class ConflictStore:
             cur.execute("""
                 INSERT OR REPLACE INTO active_positions (
                     symbol, side, entry_price, quantity, sl_price, tp_price, entry_time,
-                    trade_id, trend_signal, reversion_signal, conflict_type,
+                    trade_id, signal_a, signal_b, signal_type,
                     original_sl_price, strategy_id, pending_entry, client_order_id,
                     order_id, order_status, position_side, stop_loss_order_id, take_profit_order_id
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (symbol, side, entry_price, quantity, sl_price, tp_price,
-                  datetime.now(timezone.utc).isoformat(), trade_id, trend_signal,
-                  reversion_signal, conflict_type, original_sl_price, strategy_id,
+                  datetime.now(timezone.utc).isoformat(), trade_id, signal_a,
+                  signal_b, signal_type, original_sl_price, strategy_id,
                   1 if pending_entry else 0, client_order_id, order_id, order_status, position_side,
                   stop_loss_order_id, take_profit_order_id))
     
@@ -2857,10 +2856,10 @@ class PriceValidator:
         return True
 
 # ================================================================
-# SIGNAL CONFLICT ENGINE (Enhanced with Gemini AI Decision Layer & Agent Memory)
+# ADAPTIVE ENGINE (Enhanced with Gemini AI Decision Layer & Agent Memory)
 # ================================================================
 
-class SignalConflictEngine:
+class AdaptiveEngine:
     def __init__(self, client: AsyncClient, store):
         self.client = client
         self.store = store
@@ -2878,7 +2877,7 @@ class SignalConflictEngine:
         self.cycle_count = 0
         self.force_dry_run = False
         self.last_analysis_time = {}
-        self.conflict_history = {}
+        self.signal_history = {}
         self.analyzer = SignalAnalyzer()
         self.rsi_history_cache = {}  # Store RSI history for each symbol
         self.exit_attempt_count = {}  # Track exit attempts per symbol
@@ -2946,7 +2945,7 @@ class SignalConflictEngine:
             logger.info("🔒 MBS Layer: Hedge Mode compatibility enabled")
             if ALLOWED_POSITION_SIDE:
                 logger.info(f"   Position side restricted to: {ALLOWED_POSITION_SIDE}")
-        logger.info("🧠 AGENT MEMORY: Historical conflict learning enabled")
+        logger.info("🧠 AGENT MEMORY: Historical learning enabled")
         logger.info("⚖️ AI DECISION REVIEW: Gemini LLM override layer enabled (OpenAI fallback)")
         logger.info("📊 AI DECISION HISTORY: Recording all decisions even without trades")
         logger.info("✅ Adaptive modules initialized")
@@ -2983,12 +2982,12 @@ class SignalConflictEngine:
         self.current_regime = await self.regime_detector.detect_regime()
         return self.current_regime
     
-    async def generate_signal_explanation(self, conflict_info: Dict) -> str:
-        return await self.ai_explainer.generate_ai_explanation(conflict_info, self.current_regime)
+    async def generate_signal_explanation(self, signal_info: Dict) -> str:
+        return await self.ai_explainer.generate_ai_explanation(signal_info, self.current_regime)
     
-    async def calculate_signal_confidence(self, conflict_info: Dict, volume_confirmation: float, memory_boost: float = 0.0) -> ConfidenceScore:
+    async def calculate_signal_confidence(self, signal_info: Dict, volume_confirmation: float, memory_boost: float = 0.0) -> ConfidenceScore:
         base_confidence = await self.confidence_engine.calculate_confidence(
-            conflict_info, volume_confirmation, self.current_regime
+            signal_info, volume_confirmation, self.current_regime
         )
         adjusted_total = min(100, base_confidence.total + memory_boost * 100)
         base_confidence.total = adjusted_total
@@ -3015,7 +3014,7 @@ class SignalConflictEngine:
             return True
 
     async def setup(self):
-        logger.info("Setting up Signal Conflict Engine...")
+        logger.info("Setting up Adaptive Engine...")
         try:
             # Load symbol precision from Binance exchange info FIRST
             await self.precision_manager.load_symbol_precision()
@@ -3087,48 +3086,48 @@ class SignalConflictEngine:
             logger.info(f"Market Regime: {self.current_regime.regime.value if self.current_regime else 'UNKNOWN'}")
             
             memory_count = sum(len(v) for v in self.agent_memory.memory.values())
-            logger.info(f"Agent Memory: {memory_count} historical conflicts loaded")
+            logger.info(f"Agent Memory: {memory_count} historical signals loaded")
             
         except Exception as e:
             logger.error(f"Error during setup: {e}")
             raise
 
-    def _resolve_conflict_adaptive(self, trend_signal: Optional[str], reversion_signal: Optional[str], 
-                                    trend_strength: float, reversion_strength: float, 
-                                    conflict_score: float) -> Optional[str]:
-        """Adaptive conflict resolution - chooses best approach based on signal strength and market regime"""
-        if trend_signal == reversion_signal:
-            return trend_signal if trend_signal else None
+    def _resolve_divergence_adaptive(self, signal_a: Optional[str], signal_b: Optional[str], 
+                                    strength_a: float, strength_b: float, 
+                                    divergence_score: float) -> Optional[str]:
+        """Adaptive divergence resolution - chooses best approach based on signal strength and market regime"""
+        if signal_a == signal_b:
+            return signal_a if signal_a else None
         
-        if not trend_signal:
-            return reversion_signal
-        if not reversion_signal:
-            return trend_signal
+        if not signal_a:
+            return signal_b
+        if not signal_b:
+            return signal_a
         
         if self.current_regime:
             fgi = self.current_regime.fear_greed_index
             
-            # In extreme regimes, favor reversion
+            # In extreme regimes, favor signal_b (counter-trend)
             if fgi <= 25 or fgi >= 75:
-                return reversion_signal
+                return signal_b
             
-            # In neutral regimes, favor trend
+            # In neutral regimes, favor signal_a (trend)
             if 40 <= fgi <= 60:
-                return trend_signal
+                return signal_a
         
         # Compare signal strengths
-        if trend_strength > reversion_strength * 1.5:
-            return trend_signal
-        elif reversion_strength > trend_strength * 1.5:
-            return reversion_signal
+        if strength_a > strength_b * 1.5:
+            return signal_a
+        elif strength_b > strength_a * 1.5:
+            return signal_b
         
-        # Default: WAIT when conflict is strong and signals balanced
-        if conflict_score > 0.5:
+        # Default: WAIT when divergence is strong and signals balanced
+        if divergence_score > 0.5:
             return None
         
-        return reversion_signal if STRATEGY_MODE == "fade" else trend_signal
+        return signal_b if STRATEGY_MODE == "fade" else signal_a
 
-    async def detect_conflict(self, symbol):
+    async def detect_signal(self, symbol):
         try:
             klines_1h = await self.dl.klines(symbol, '1h', limit=100)
             if not klines_1h or len(klines_1h) < 50:
@@ -3167,19 +3166,19 @@ class SignalConflictEngine:
             if not all([rsi, bollinger, adx, ema_fast, ema_slow]):
                 return None
             
-            trend_signal = None
-            trend_strength = 0.0
+            signal_a = None
+            strength_a = 0.0
             
             if adx >= ADX_MIN_STRENGTH:
                 if ema_fast > ema_slow:
-                    trend_signal = "LONG"
-                    trend_strength = (adx - ADX_MIN_STRENGTH) / 50.0
+                    signal_a = "LONG"
+                    strength_a = (adx - ADX_MIN_STRENGTH) / 50.0
                 elif ema_fast < ema_slow:
-                    trend_signal = "SHORT"
-                    trend_strength = (adx - ADX_MIN_STRENGTH) / 50.0
+                    signal_a = "SHORT"
+                    strength_a = (adx - ADX_MIN_STRENGTH) / 50.0
             
-            reversion_signal = None
-            reversion_strength = 0.0
+            signal_b = None
+            strength_b = 0.0
             percent_b = bollinger['percent_b'] if bollinger else 0
             
             # RSI-only entries in extreme conditions with consecutive candle confirmation
@@ -3190,12 +3189,12 @@ class SignalConflictEngine:
                     if allowed:
                         return {
                             'symbol': symbol, 'current_price': current_price, 'current_rsi': rsi,
-                            'trend_signal': trend_signal, 'trend_strength': trend_strength,
-                            'reversion_signal': trade_signal,
-                            'reversion_strength': (rsi - 80) / 20,
-                            'conflict_type': "EXTREME_RSI", 'conflict_score': 1.0,
+                            'signal_a': signal_a, 'strength_a': strength_a,
+                            'signal_b': trade_signal,
+                            'strength_b': (rsi - 80) / 20,
+                            'signal_type': "EXTREME_RSI", 'divergence_score': 1.0,
                             'trade_signal': trade_signal, 'volume_confirmation': 0,
-                            'reversion_dominant': True, 'rsi_extreme_confirmed': True, 'rsi_only_entry': True
+                            'signal_b_dominant': True, 'rsi_extreme_confirmed': True, 'rsi_only_entry': True
                         }
                 elif rsi_extreme_buy_confirmed and rsi <= 20:
                     trade_signal = "BUY"
@@ -3203,44 +3202,44 @@ class SignalConflictEngine:
                     if allowed:
                         return {
                             'symbol': symbol, 'current_price': current_price, 'current_rsi': rsi,
-                            'trend_signal': trend_signal, 'trend_strength': trend_strength,
-                            'reversion_signal': trade_signal,
-                            'reversion_strength': (20 - rsi) / 20,
-                            'conflict_type': "EXTREME_RSI", 'conflict_score': 1.0,
+                            'signal_a': signal_a, 'strength_a': strength_a,
+                            'signal_b': trade_signal,
+                            'strength_b': (20 - rsi) / 20,
+                            'signal_type': "EXTREME_RSI", 'divergence_score': 1.0,
                             'trade_signal': trade_signal, 'volume_confirmation': 0,
-                            'reversion_dominant': True, 'rsi_extreme_confirmed': True, 'rsi_only_entry': True
+                            'signal_b_dominant': True, 'rsi_extreme_confirmed': True, 'rsi_only_entry': True
                         }
             
-            # Detect mean reversion signals from Bollinger Bands
+            # Detect signal_b from Bollinger Bands
             if percent_b <= 0.05:
-                reversion_signal = "BUY"
-                reversion_strength = (0.05 - percent_b) / 0.05
+                signal_b = "BUY"
+                strength_b = (0.05 - percent_b) / 0.05
             elif percent_b >= 0.95:
-                reversion_signal = "SELL"
-                reversion_strength = (percent_b - 0.95) / 0.05
+                signal_b = "SELL"
+                strength_b = (percent_b - 0.95) / 0.05
             
-            # Calculate conflict score
-            conflict_score = 0.0
-            if trend_signal and reversion_signal and trend_signal != reversion_signal:
-                conflict_score = min(trend_strength, reversion_strength)
-            elif trend_signal and not reversion_signal:
-                conflict_score = 0.0
-            elif not trend_signal and reversion_signal:
-                conflict_score = 0.0
+            # Calculate divergence score
+            divergence_score = 0.0
+            if signal_a and signal_b and signal_a != signal_b:
+                divergence_score = min(strength_a, strength_b)
+            elif signal_a and not signal_b:
+                divergence_score = 0.0
+            elif not signal_a and signal_b:
+                divergence_score = 0.0
             else:
-                conflict_score = 0.0
+                divergence_score = 0.0
             
             rsi_extreme_override = False
-            if rsi_extreme_sell_confirmed and rsi >= 80 and reversion_signal == "SELL":
+            if rsi_extreme_sell_confirmed and rsi >= 80 and signal_b == "SELL":
                 rsi_extreme_override = True
-                conflict_score = max(conflict_score, 0.8)
-            elif rsi_extreme_buy_confirmed and rsi <= 20 and reversion_signal == "BUY":
+                divergence_score = max(divergence_score, 0.8)
+            elif rsi_extreme_buy_confirmed and rsi <= 20 and signal_b == "BUY":
                 rsi_extreme_override = True
-                conflict_score = max(conflict_score, 0.8)
+                divergence_score = max(divergence_score, 0.8)
             
-            # Use adaptive conflict resolution
-            trade_signal = self._resolve_conflict_adaptive(
-                trend_signal, reversion_signal, trend_strength, reversion_strength, conflict_score
+            # Use adaptive divergence resolution
+            trade_signal = self._resolve_divergence_adaptive(
+                signal_a, signal_b, strength_a, strength_b, divergence_score
             )
             
             if trade_signal:
@@ -3248,16 +3247,16 @@ class SignalConflictEngine:
                 if not allowed:
                     return None
             
-            if trade_signal and (conflict_score >= MIN_CONFLICT_STRENGTH or rsi_extreme_override or conflict_score == 0.0):
-                conflict_type = "OPPOSITE" if trend_signal and reversion_signal and trend_signal != reversion_signal else "ALIGNED"
+            if trade_signal and (divergence_score >= MIN_CONFLICT_STRENGTH or rsi_extreme_override or divergence_score == 0.0):
+                signal_type = "DIVERGENT" if signal_a and signal_b and signal_a != signal_b else "ALIGNED"
                 
                 return {
                     'symbol': symbol, 'current_price': current_price, 'current_rsi': rsi,
-                    'trend_signal': trend_signal, 'trend_strength': trend_strength,
-                    'reversion_signal': reversion_signal, 'reversion_strength': reversion_strength,
-                    'conflict_type': conflict_type, 'conflict_score': conflict_score,
+                    'signal_a': signal_a, 'strength_a': strength_a,
+                    'signal_b': signal_b, 'strength_b': strength_b,
+                    'signal_type': signal_type, 'divergence_score': divergence_score,
                     'trade_signal': trade_signal, 'volume_confirmation': 0,
-                    'reversion_dominant': trade_signal == reversion_signal if reversion_signal else False,
+                    'signal_b_dominant': trade_signal == signal_b if signal_b else False,
                     'rsi_extreme_confirmed': (trade_signal == 'SELL' and rsi >= 80) or 
                                            (trade_signal == 'BUY' and rsi <= 20),
                     'rsi_extreme_override': rsi_extreme_override, 'rsi_only_entry': False
@@ -3266,7 +3265,7 @@ class SignalConflictEngine:
             return None
             
         except Exception as e:
-            logger.error(f"Error detecting conflict for {symbol}: {e}")
+            logger.error(f"Error detecting signal for {symbol}: {e}")
             return None
 
     async def analyze_symbol_enhanced(self, symbol):
@@ -3297,13 +3296,13 @@ class SignalConflictEngine:
                 if current_time - self.last_analysis_time[symbol] < ANALYSIS_COOLDOWN_SEC:
                     return None
             
-            conflict = await self.detect_conflict(symbol)
-            if not conflict:
+            signal = await self.detect_signal(symbol)
+            if not signal:
                 return None
             
-            current_price = conflict['current_price']
-            current_rsi = conflict.get('current_rsi', 0)
-            side = conflict['trade_signal']
+            current_price = signal['current_price']
+            current_rsi = signal.get('current_rsi', 0)
+            side = signal['trade_signal']
             
             self.rsi_ladder_manager.update_rsi_history(symbol, current_rsi)
             
@@ -3342,7 +3341,7 @@ class SignalConflictEngine:
                     logger.info(f"ENTRY BLOCKED: {symbol} position_size={position_size} (too small for account)")
                 return None
             
-            is_rsi_extreme = conflict.get('reversion_dominant', False) and conflict.get('rsi_extreme_confirmed', False)
+            is_rsi_extreme = signal.get('signal_b_dominant', False) and signal.get('rsi_extreme_confirmed', False)
             sl_price, tp_price, sl_distance, tp_distance, planned_r = self.calculate_stop_take_with_time_stop(
                 current_price, side, atr_value, is_rsi_extreme=is_rsi_extreme
             )
@@ -3380,37 +3379,37 @@ class SignalConflictEngine:
             
             # Calculate memory-based adjustment
             memory_boost, memory_reason = self.agent_memory.calculate_memory_adjustment(
-                conflict.get('conflict_type', 'UNKNOWN'), side
+                signal.get('signal_type', 'UNKNOWN'), side
             )
             
             # Generate AI explanation
-            explanation = await self.generate_signal_explanation(conflict)
+            explanation = await self.generate_signal_explanation(signal)
             
             # Calculate confidence score
-            volume_confirmation = conflict.get('volume_confirmation', 0.5)
-            confidence = await self.calculate_signal_confidence(conflict, volume_confirmation, memory_boost)
+            volume_confirmation = signal.get('volume_confirmation', 0.5)
+            confidence = await self.calculate_signal_confidence(signal, volume_confirmation, memory_boost)
             
             # AI Decision Review - using Gemini with OpenAI fallback
             final_decision, ai_reason, adjusted_confidence = await self.ai_decision_review.review_decision(
-                conflict, self.current_regime, confidence.total, memory_boost
+                signal, self.current_regime, confidence.total, memory_boost
             )
             
             # If AI overrides to WAIT, skip entry but still log decision
-            if final_decision == 'WAIT' and final_decision != conflict.get('trade_signal'):
+            if final_decision == 'WAIT' and final_decision != signal.get('trade_signal'):
                 logger.info(f"[{symbol}] AI OVERRIDE to WAIT: {ai_reason}")
                 return None
             
             # If AI overrides to opposite side, update side
-            if final_decision != conflict.get('trade_signal') and final_decision in ['BUY', 'SELL']:
-                logger.info(f"[{symbol}] AI OVERRIDE side: {conflict.get('trade_signal')} → {final_decision}. {ai_reason}")
+            if final_decision != signal.get('trade_signal') and final_decision in ['BUY', 'SELL']:
+                logger.info(f"[{symbol}] AI OVERRIDE side: {signal.get('trade_signal')} → {final_decision}. {ai_reason}")
                 side = final_decision
-                conflict['trade_signal'] = final_decision
+                signal['trade_signal'] = final_decision
             
             # Update confidence with AI adjustment
             confidence.total = adjusted_confidence
             
             log_msg = f"[{symbol}] TRADE: {side} @ {current_price:.4f}, RSI: {current_rsi:.1f}, "
-            log_msg += f"Conflict: {conflict['conflict_type']} ({conflict['conflict_score']:.2f}), "
+            log_msg += f"Signal: {signal['signal_type']} ({signal['divergence_score']:.2f}), "
             log_msg += f"R/R: {risk_reward:.2f}, Confidence: {confidence.total:.1f}%"
             if memory_boost != 0:
                 log_msg += f", Memory: {memory_reason}"
@@ -3427,7 +3426,7 @@ class SignalConflictEngine:
                 'symbol': symbol, 'side': side, 'entry_price': current_price,
                 'quantity': position_size, 'sl_price': sl_price, 'tp_price': tp_price,
                 'risk_pct': risk, 'reward_pct': reward, 'risk_reward': risk_reward,
-                'planned_r': planned_r, 'details': conflict,
+                'planned_r': planned_r, 'details': signal,
                 'indicators': {'atr': atr_value},
                 'liquidation_info': {
                     'distance_pct': liquidation_distance_pct, 'zone': zone_info['zone'],
@@ -3435,15 +3434,15 @@ class SignalConflictEngine:
                     'block_adds': zone_info['block_adds']
                 },
                 'rsi_extreme': {
-                    'reversion_dominant': conflict.get('reversion_dominant', False),
-                    'rsi_extreme_confirmed': conflict.get('rsi_extreme_confirmed', False),
-                    'current_rsi': current_rsi, 'rsi_only_entry': conflict.get('rsi_only_entry', False)
+                    'signal_b_dominant': signal.get('signal_b_dominant', False),
+                    'rsi_extreme_confirmed': signal.get('rsi_extreme_confirmed', False),
+                    'current_rsi': current_rsi, 'rsi_only_entry': signal.get('rsi_only_entry', False)
                 },
                 'rrr_bypassed': bypass_rrr, 'rrr_bypass_reason': bypass_reason if bypass_rrr else None,
                 'ai_explanation': explanation, 'ai_decision_reason': ai_reason,
                 'confidence_score': confidence.total, 'memory_boost': memory_boost,
                 'confidence_breakdown': {
-                    'trend': confidence.trend_score, 'reversion': confidence.reversion_score,
+                    'signal_a': confidence.signal_a_score, 'signal_b': confidence.signal_b_score,
                     'volume': confidence.volume_score, 'regime': confidence.regime_score
                 },
                 'market_regime': self.current_regime.regime.value if self.current_regime else 'UNKNOWN'
@@ -3731,11 +3730,11 @@ class SignalConflictEngine:
             # Generate compact client_order_id under 36 chars
             import uuid
             short_id = uuid.uuid4().hex[:8]
-            client_order_id = f"SC_SL_{symbol[:4]}_{short_id}"
+            client_order_id = f"AA_SL_{symbol[:4]}_{short_id}"
             if len(client_order_id) > 35:
-                client_order_id = f"SC_SL_{short_id}"
+                client_order_id = f"AA_SL_{short_id}"
             if len(client_order_id) > 35:
-                client_order_id = f"SC_SL_{uuid.uuid4().hex[:10]}"
+                client_order_id = f"AA_SL_{uuid.uuid4().hex[:10]}"
             
             order_params = {
                 'symbol': symbol,
@@ -3793,11 +3792,11 @@ class SignalConflictEngine:
             # Generate compact client_order_id under 36 chars
             import uuid
             short_id = uuid.uuid4().hex[:8]
-            client_order_id = f"SC_TP_{symbol[:4]}_{short_id}"
+            client_order_id = f"AA_TP_{symbol[:4]}_{short_id}"
             if len(client_order_id) > 35:
-                client_order_id = f"SC_TP_{short_id}"
+                client_order_id = f"AA_TP_{short_id}"
             if len(client_order_id) > 35:
-                client_order_id = f"SC_TP_{uuid.uuid4().hex[:10]}"
+                client_order_id = f"AA_TP_{uuid.uuid4().hex[:10]}"
             
             order_params = {
                 'symbol': symbol,
@@ -3884,11 +3883,11 @@ class SignalConflictEngine:
             # Generate compact client_order_id under 36 chars (Binance requirement)
             import uuid
             short_id = uuid.uuid4().hex[:8]
-            client_order_id = f"SC_{symbol[:4]}_{short_id}"
+            client_order_id = f"AA_{symbol[:4]}_{short_id}"
             if len(client_order_id) > 35:
-                client_order_id = f"SC_{short_id}"
+                client_order_id = f"AA_{short_id}"
             if len(client_order_id) > 35:
-                client_order_id = f"SC_{uuid.uuid4().hex[:10]}"
+                client_order_id = f"AA_{uuid.uuid4().hex[:10]}"
             
             position_side = self.get_position_side_for_order(opportunity['side'])
             
@@ -3923,11 +3922,11 @@ class SignalConflictEngine:
                 mode=STRATEGY_MODE, entry_price=avg_price, sl_price=opportunity['sl_price'],
                 tp_price=opportunity['tp_price'], quantity=quantity, leverage=applied_leverage,
                 notional=avg_price * quantity,
-                trend_signal=opportunity['details'].get('trend_signal'),
-                trend_strength=opportunity['details'].get('trend_strength'),
-                reversion_signal=opportunity['details'].get('reversion_signal'),
-                reversion_strength=opportunity['details'].get('reversion_strength'),
-                conflict_score=opportunity['details'].get('conflict_score'),
+                signal_a=opportunity['details'].get('signal_a'),
+                strength_a=opportunity['details'].get('strength_a'),
+                signal_b=opportunity['details'].get('signal_b'),
+                strength_b=opportunity['details'].get('strength_b'),
+                divergence_score=opportunity['details'].get('divergence_score'),
                 volume_confirmation=opportunity['details'].get('volume_confirmation', 0),
                 strategy_id=STRATEGY_ID, position_side=position_side
             )
@@ -3948,11 +3947,11 @@ class SignalConflictEngine:
             else:
                 logger.info(f"[{symbol}] TP/SL orders placed: SL={sl_order_id}, TP={tp_order_id}")
             
-            # Record conflict outcome start for memory
-            if opportunity['details'].get('conflict_type'):
-                conflict_type = opportunity['details']['conflict_type']
+            # Record outcome start for memory
+            if opportunity['details'].get('signal_type'):
+                signal_type = opportunity['details']['signal_type']
                 self.agent_memory.record_outcome(
-                    conflict_type=conflict_type, side=opportunity['side'],
+                    signal_type=signal_type, side=opportunity['side'],
                     outcome='PENDING', pnl=0,
                     rsi_at_entry=opportunity.get('rsi_extreme', {}).get('current_rsi', 50),
                     regime=opportunity.get('market_regime', 'NEUTRAL')
@@ -3965,9 +3964,9 @@ class SignalConflictEngine:
             self.store.save_active_position(
                 symbol=symbol, side=opportunity['side'], entry_price=avg_price, quantity=quantity,
                 sl_price=opportunity['sl_price'], tp_price=opportunity['tp_price'], trade_id=trade_id,
-                trend_signal=opportunity['details'].get('trend_signal'),
-                reversion_signal=opportunity['details'].get('reversion_signal'),
-                conflict_type=opportunity['details'].get('conflict_type'),
+                signal_a=opportunity['details'].get('signal_a'),
+                signal_b=opportunity['details'].get('signal_b'),
+                signal_type=opportunity['details'].get('signal_type'),
                 original_sl_price=opportunity['sl_price'], strategy_id=STRATEGY_ID,
                 pending_entry=False, client_order_id=client_order_id, order_id=order_id,
                 order_status='FILLED', position_side=position_side,
@@ -4023,9 +4022,9 @@ class SignalConflictEngine:
             # Generate compact client_order_id under 36 chars
             import uuid
             short_id = uuid.uuid4().hex[:8]
-            client_order_id = f"SC_{symbol[:4]}_X_{short_id}"
+            client_order_id = f"AA_{symbol[:4]}_X_{short_id}"
             if len(client_order_id) > 35:
-                client_order_id = f"SC_X_{uuid.uuid4().hex[:10]}"
+                client_order_id = f"AA_X_{uuid.uuid4().hex[:10]}"
             
             # ORDER CHECK before exit order submission
             logger.warning(
@@ -4081,9 +4080,9 @@ class SignalConflictEngine:
                         self.store.update_accuracy(symbol, outcome in ["TP", "BE"], side)
                         
                         # Record outcome in agent memory
-                        if position.get('details', {}).get('conflict_type'):
+                        if position.get('details', {}).get('signal_type'):
                             self.agent_memory.record_outcome(
-                                conflict_type=position['details']['conflict_type'],
+                                signal_type=position['details']['signal_type'],
                                 side=side, outcome=outcome, pnl=net_pnl,
                                 rsi_at_entry=position.get('rsi_extreme', {}).get('current_rsi', 50),
                                 regime=position.get('market_regime', 'NEUTRAL')
@@ -4180,17 +4179,17 @@ class SignalConflictEngine:
             if client_order_id:
                 if len(client_order_id) > 35:
                     import uuid
-                    client_order_id = f"SC_{uuid.uuid4().hex[:10]}"
+                    client_order_id = f"AA_{uuid.uuid4().hex[:10]}"
                 order_params['newClientOrderId'] = client_order_id
             else:
                 self.order_counter += 1
                 import uuid
                 short_id = uuid.uuid4().hex[:8]
-                client_order_id = f"SC_{symbol[:4]}_{short_id}"
+                client_order_id = f"AA_{symbol[:4]}_{short_id}"
                 if len(client_order_id) > 35:
-                    client_order_id = f"SC_{short_id}"
+                    client_order_id = f"AA_{short_id}"
                 if len(client_order_id) > 35:
-                    client_order_id = f"SC_{uuid.uuid4().hex[:10]}"
+                    client_order_id = f"AA_{uuid.uuid4().hex[:10]}"
                 order_params['newClientOrderId'] = client_order_id
             
             if type == 'MARKET':
@@ -4539,7 +4538,7 @@ async def self_test(symbol):
     try:
         client = await AsyncClient.create(BINANCE_API_KEY, BINANCE_API_SECRET, testnet=USE_TESTNET)
         store = ConflictStore(DB_PATH)
-        engine = SignalConflictEngine(client, store)
+        engine = AdaptiveEngine(client, store)
         await engine.setup()
         result = await engine.analyze_symbol_enhanced(symbol)
         if result:
@@ -4585,10 +4584,10 @@ def show_trades():
 
 async def main():
     logger.info("=" * 70)
-    logger.info("SIGNAL CONFLICT AI AGENT - HACKATHON EDITION")
+    logger.info("ADAPTIVE AI AGENT - HACKATHON EDITION")
     logger.info("=" * 70)
     logger.info(f"DRY_RUN: {DRY_RUN}, TESTNET: {USE_TESTNET}")
-    logger.info(f"STRATEGY_ID: {STRATEGY_ID}, Mode: Adaptive Conflict Resolution")
+    logger.info(f"STRATEGY_ID: {STRATEGY_ID}, Mode: Adaptive Resolution")
     if ALLOWED_POSITION_SIDE:
         logger.info(f"🔒 Position side: {ALLOWED_POSITION_SIDE} only")
     logger.info(f"🤖 AI Decision Layer: {'ENABLED (Gemini + OpenAI fallback)' if not DISABLE_AI_LAYER else 'DISABLED'}")
@@ -4600,7 +4599,7 @@ async def main():
     try:
         client = await AsyncClient.create(BINANCE_API_KEY, BINANCE_API_SECRET, testnet=USE_TESTNET)
         store = ConflictStore(DB_PATH)
-        engine = SignalConflictEngine(client, store)
+        engine = AdaptiveEngine(client, store)
         await engine.setup()
         
         if ENABLE_DASHBOARD:
